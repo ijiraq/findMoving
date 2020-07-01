@@ -9,7 +9,9 @@ from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata.utils import Cutout2D, PartialOverlapError
 from astropy.table import Table, vstack
+from astropy.visualization import ImageNormalize, ZScaleInterval
 from astropy.wcs import wcs
+from matplotlib import pyplot
 
 PIX_CUTOUT_SIZE = 64
 
@@ -44,7 +46,7 @@ def load_plant_list(filename):
 
 def cut(pairs, plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1000, extno=1):
     """
-    retrieve image sections from two images.
+    retrieve image sections from image sets whose files names are given in pairs in the pairs list.
 
     :param pairs: list of pairs of FITS filenames containing the images of interest.
     :param plant_list: list of sources that were added to these images.
@@ -70,7 +72,7 @@ def cut(pairs, plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1000, 
 
     for pair in pairs:
 
-        logging.info("Creating {} cutouts for image pair {}-{}".format(num_samples, pair[0], pair[1]))
+        logging.info("Creating {} cutouts for image pair ({}, {})".format(num_samples, pair[0], pair[1]))
         images = []
         pair_source_cutouts = []
         pair_blank_cutouts = []
@@ -90,8 +92,8 @@ def cut(pairs, plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1000, 
             xx = numpy.random.randint(0, images[0].header['NAXIS1'], num_samples)
             yy = numpy.random.randint(0, images[0].header['NAXIS2'], num_samples)
         else:
-            xx = numpy.arange(size//2, images[0].header['NAXIS1'], size)
-            yy = numpy.arange(size//2, images[0].header['NAXIS2'], size)
+            xx = numpy.arange(size // 2, images[0].header['NAXIS1'], size)
+            yy = numpy.arange(size // 2, images[0].header['NAXIS2'], size)
 
         # loop over the mess of coordinates.
         for x in xx:
@@ -103,6 +105,9 @@ def cut(pairs, plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1000, 
                     for image in images:
                         image_wcs = wcs.WCS(image.header)
                         image_cutout = Cutout2D(image.data, (x, y), size, wcs=image_wcs, mode='strict')
+                        if numpy.isnan(image_cutout.data).any():
+                            # skip over cutouts that contain nans
+                            break
                         # determine which planted sources are in this cutout.
                         image_fakes = plant_list[image_cutout.wcs.footprint_contains(plant_list['skycoord'])]
                         if len(image_fakes) > 1:
@@ -113,13 +118,13 @@ def cut(pairs, plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1000, 
                         use_this_cutout = True
                         if len(image_fakes) == 1:
                             cutout_coo = image_cutout.wcs.all_world2pix(((image_fakes['ra'][0],
-                                                                        image_fakes['dec'][0]),),
+                                                                          image_fakes['dec'][0]),),
                                                                         1)
                             target_xo = cutout_coo[0][0]
                             target_yo = cutout_coo[0][1]
 
                             initial_coo = image_wcs.all_world2pix(((image_fakes['ra'][0],
-                                                                   image_fakes['dec'][0]),),
+                                                                    image_fakes['dec'][0]),),
                                                                   1)
                             target_x = initial_coo[0][0]
                             target_y = initial_coo[0][1]
@@ -132,6 +137,7 @@ def cut(pairs, plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1000, 
                         else:
                             pair_blank_cutouts.extend([image_cutouts])
                 except PartialOverlapError as ex:
+                    logging.debug(str(ex))
                     logging.debug("Cutout at {},{} not fully inside image, skipping".format(x, y))
                     # skip if only a partially overlapping cutout.
                     break
@@ -155,7 +161,7 @@ def build_image_pair_list(image_directory):
     """
     image_filename_list = numpy.array(glob.glob(os.path.join(image_directory, '*.fits')))
     image_pairs = numpy.random.choice(image_filename_list,
-                                      (len(image_filename_list)//2, 2),
+                                      (len(image_filename_list) // 2, 2),
                                       replace=False)
     return image_pairs
 
@@ -188,6 +194,35 @@ def build_table_of_planted_sources(plant_list_directory, pattern='*.plantList'):
     return table_of_planted_sources
 
 
+def plot(source_cutout, source_cutout_target):
+    """
+    Make a sky plot of the two image chunks in the source cutout and display for user.
+
+    :param source_cutout: a single source cutout entry as returned from data_model.cut
+    :param source_cutout_target: a single source cutout target entry as returned from data_model.cut
+    :return: None
+    """
+
+    fig = pyplot.figure(figsize=(11, 11))
+
+    for i in range(len(source_cutout)):
+        fig.add_subplot(1, 2, i+1)
+        try:
+            norm = ImageNormalize(source_cutout[i], interval=ZScaleInterval())
+        except Exception as ex:
+            logging.debug(str(ex))
+            norm = None
+
+        pyplot.imshow(source_cutout[i], origin='lower', norm=norm)
+        # Offset the x/y location by 1 pixel due to locations being FORTRAN/FITS and plot being python/numpy.
+        pyplot.scatter(source_cutout_target[i][2] - 1,
+                       source_cutout_target[i][3] - 1,
+                       s=500, facecolors='none', edgecolors='r')
+        pyplot.title("planted source mag: {:4.1f}".format(source_cutout_target[i][4]))
+
+    pyplot.show()
+
+
 def main():
     """"
     This is the main method which runs this module as a Command Line script.
@@ -204,12 +239,19 @@ def main():
     parser.add_argument('--dimension', type=int, default=PIX_CUTOUT_SIZE,
                         help='width/height of square cutouts to make.')
     parser.add_argument('--verbose', default=False, action='store_true')
+    parser.add_argument('--num-to-plot', default=15, type=int,
+                        help="Should we plot some example cutouts? How many? Set to 0 if you don't want any.")
+    parser.add_argument('--debug', default=False, action='store_true')
 
     args = parser.parse_args()
+
+    # Set the logging level.
+    level = logging.ERROR
     if args.verbose:
-        logging.basicConfig(level=logging.INFO)
-    else:
-        logging.basicConfig(level=logging.ERROR)
+        level = logging.INFO
+    if args.debug:
+        level = logging.DEBUG
+    logging.basicConfig(level=level)
 
     # Get the list of pairs of images in image_directory
     image_pairs = build_image_pair_list(args.image_directory)
@@ -228,17 +270,27 @@ def main():
                                                         size=args.dimension,
                                                         random=args.random,
                                                         num_samples=args.nsamples)
+    #
     # print the location of the planted source in the first image of the first pair of images
     # along with the shape of the data array of the cutout from the first image that contains that source
     # Indexing is 'Image_Pair', 'Cutout Set', 'image1, image2'
-    print(source_targets[0][0][0][2:4], source_cutouts[0][0][0].shape)
-    # print the location of the planted source in the second image of the first pair of images
-    # along with the shape of the data array of the cutout from the second image that contains that source
-    print(source_targets[0][0][1][2:4], source_cutouts[0][0][1].shape)
-    # print out the shape of the first blank piece of sky (no artificial TNO) from the first image in the first pair.
-    print(blank_cutouts[0][0][0].shape)
-    # print out the shape of the first blank piece of sky (no artificial TNO) from the first image in the first pair.
-    print(blank_cutouts[0][0][1].shape)
+    #
+    logging.info("Location of target 1 in pair 1 image 1: {}".format(source_targets[0][0][0][2:4]))
+    logging.info("Location of target 1 in pair 1 image 2: {}".format(source_targets[0][0][1][2:4]))
+    logging.info("Size of image cutout for pair 1, source 1, image 1: {}".format(source_cutouts[0][0][0].shape))
+    logging.info("Size of image cutout for pair 1, source 1, image 2: {}".format(source_cutouts[0][0][1].shape))
+
+    #
+    # for the first image pair (index 0 on source_targets has all the planted source parameters for the
+    # first pair of images). sort the cutout set (second index, given as : below selects all the cutouts for this pair)
+    # on the magnitude of the planted source in first image in the pair (the next '0' in indexing says we are dealing
+    # with the first image in the pairs), lower value of magnitude (stored in column 4) are brighter.
+    #
+    if args.num_to_plot > 0:
+        brightest_targets = numpy.argsort(numpy.array(source_targets[0])[:, 0, 4])
+        # Plot cutout images of the 15 brightest sources.
+        for i in range(args.num_to_plot):
+            plot(source_cutouts[0][brightest_targets[i]], source_targets[0][brightest_targets[i]])
 
 
 if __name__ == '__main__':
