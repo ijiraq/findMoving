@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from itertools import combinations
+
 import numpy
 from astropy import units
 from astropy.coordinates import SkyCoord
@@ -15,6 +16,7 @@ from astropy.wcs import wcs
 from matplotlib import pyplot
 
 PIX_CUTOUT_SIZE = 64
+VISIT_IN_PLANT_LIST_FILENAME_RE = re.compile(r'0([0-9]{6})')
 
 
 def load_plantlist(filename):
@@ -47,7 +49,12 @@ def load_plantlist(filename):
                     'rate_dec': units.arcsecond / units.hour,
                     'mag': None,
                     'psf_amp': None}
-    visit = re.search(r'0([0-9]{6})', filename).group(1)
+
+    match = VISIT_IN_PLANT_LIST_FILENAME_RE.search(filename)
+    if match is None:
+        raise ValueError(f'Filename {filename} does not match expected pattern.')
+    visit = match.group(1)
+
     this_table = Table.read(filename, names=column_names, format='ascii')
     for name in column_units:
         if column_units[name] is not None:
@@ -112,8 +119,10 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
         # Make an array that contains the coordinate pairs centred on x[o],y[o].
         xy = numpy.vstack((xx, yy)).T
         num_cutouts = 0
+        num_cutouts_with_source = 0
         # For the 'random' set we pad out the number of samples to allow for nan values being skipped.
         # loop over the mess of coordinates.
+        logging.info(f'Looping over {len(xy)} coordinate pairs to make cutouts.')
         for p in xy:
             try:
                 image_cutouts = []
@@ -153,8 +162,7 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
                     if numpy.sum(image_targets[0]) > 0 or numpy.sum(image_targets[1]) > 0:
                         source_cutouts.append(numpy.array(image_cutouts))
                         source_cutout_targets.append(numpy.array(image_targets))
-                        logging.debug("source shape: {}".format(source_cutouts[-1].shape))
-                        logging.debug("target shape: {}".format(source_cutout_targets[-1].shape))
+                        num_cutouts_with_source += 1
                     else:
                         blank_cutouts.append(numpy.array(image_cutouts))
                         logging.debug("blank shape: {}".format(blank_cutouts[-1].shape))
@@ -167,15 +175,17 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
                 logging.debug(str(io))
             if num_cutouts > num_samples:
                 break
+        logging.info(f'Extracted {num_cutouts} from {pair} with {num_cutouts_with_source} '
+                     f'containing an artificial source.')
 
     # restructure the data so that we loose the 'pair' breakdown.
     source_cutouts = numpy.array(source_cutouts)
     source_cutout_targets = numpy.array(source_cutout_targets)
     source_cutout_targets = numpy.array(source_cutout_targets)
     blank_cutouts = numpy.array(blank_cutouts)
-    logging.info("Sending back data with the following shapes: {}  {}  {}".format(source_cutouts.shape,
-                                                                                  source_cutout_targets.shape,
-                                                                                  blank_cutouts.shape))
+    logging.debug("Sending back data with the following shapes: {}  {}  {}".format(source_cutouts.shape,
+                                                                                   source_cutout_targets.shape,
+                                                                                   blank_cutouts.shape))
     return source_cutouts, source_cutout_targets, blank_cutouts
 
 
