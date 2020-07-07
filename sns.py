@@ -126,75 +126,93 @@ def main():
         input_rerun = reruns[0]
         output_rerun = reruns[1]
 
-    input_dir = os.path.join(args.basedir, 'rerun', input_rerun, 'deepCoadd', args.filter, args.tract, args.patch)
-    output_dir = os.path.join(args.basedir, 'rerun', output_rerun, 'deepCoadd', args.filter, args.tract, args.patch)
+    filters = args.filter.split("^")
+    tracts = args.tract.split("^")
+    patches = args.patch.split("^")
+    reruns = []
+    for filter in filters:
+        for tract in tracts:
+            for patch in patches:
+                reruns.append(
+                    {'input': os.path.join(args.basedir, 'rerun',
+                                           input_rerun, 'deepCoadd',
+                                           filter, tract, patch),
+                     'output': os.path.join(args.basedir, 'rerun',
+                                            output_rerun, 'deepCoadd',
+                                            filter, tract, patch),
+                     })
 
-    images = glob.glob(input_dir + '/diff*.fits')
-    images.sort()
-    images = np.array(images)
+    shift_and_stack_sets = []
+    for rerun in reruns:
+        assert 'input_dir' in rerun.keys() and 'output_dir' in rerun.keys(), f'Missing input or output dir from {rerun}'
+        image_filename_list = glob.glob(rerun['input_dir'] + '/diff*.fits')
+        image_filename_list.sort()
+        shift_and_stack_set = {'fits_filenames': np.array(image_filename_list)}
 
-    mjds = []
-    for i, fn in enumerate(images):
-        with fits.open(fn) as han:
-            header = han[0].header
+        shift_and_stack_sets.append({})
+        mjds = []
+        for i, fn in enumerate(images):
+            with fits.open(fn) as han:
+                header = han[0].header
 
-        reference_date = header['DATE-AVG']
-        t = time.Time(reference_date, format='isot')
-        print(reference_date)
-        mjds.append(t.mjd)
-    mid_mjd = np.mean(np.array(mjds))
+            reference_date = header['DATE-AVG']
+            t = time.Time(reference_date, format='isot')
+            logging.debug(f'Got {reference_date.isot} from {fn}')
+            mjds.append(t.mjd)
 
-    if 'shiftOne' in output_dir:
-        images = images[0::3]
-    if 'shiftTwo' in output_dir:
-        images = images[1::3]
-    elif 'shiftThree' in output_dir:
-        images = images[2::3]
+        mid_mjd = np.mean(np.array(mjds))
 
-    rates = []
-    for dr in np.linspace(1.0, 5.0, int((5.0 - 1.0) / 0.25) + 1):
-        for dd in np.linspace(-3.0, 3.0, int(6.0 / .25) + 1):
-            rates.append([dr, dd])
-            logging.debug(f'Rate: {dr} and Angel:{dd}')
+        if 'shiftOne' in output_dir:
+            images = images[0::3]
+        if 'shiftTwo' in output_dir:
+            images = images[1::3]
+        elif 'shiftThree' in output_dir:
+            images = images[2::3]
 
-    """
-        rates = [[4.0,-2.6],[3.5,-2.6],[3.0,-2.6],[2.5,-2.6],[2.0,-2.6],[1.5,-2.6],
-        [4.0,0.0],[3.5,0.0],[3.0,0.0],[2.5,0.0],[2.0,0.0],[1.5,0.0],
-             [4.0,-1.3],[3.5,-1.3],[3.0,-1.3],[2.5,-1.3],[2.0,-1.3],[1.5,-1.3],
-             [4.0,1.3],[3.5,1.3],[3.0,1.3],[2.5,1.3],[2.0,1.3],[1.5,1.3]]
-    """
+        rates = []
+        for dr in np.linspace(1.0, 5.0, int((5.0 - 1.0) / 0.25) + 1):
+            for dd in np.linspace(-3.0, 3.0, int(6.0 / .25) + 1):
+                rates.append([dr, dd])
+                logging.debug(f'Rate: {dr} and Angel:{dd}')
 
-    image_data = []
-    mjds = []
-    for i, fn in enumerate(images):
-        with fits.open(fn) as han:
-            data = han[0].data
-            header = han[0].header
+        """
+            rates = [[4.0,-2.6],[3.5,-2.6],[3.0,-2.6],[2.5,-2.6],[2.0,-2.6],[1.5,-2.6],
+            [4.0,0.0],[3.5,0.0],[3.0,0.0],[2.5,0.0],[2.0,0.0],[1.5,0.0],
+                 [4.0,-1.3],[3.5,-1.3],[3.0,-1.3],[2.5,-1.3],[2.0,-1.3],[1.5,-1.3],
+                 [4.0,1.3],[3.5,1.3],[3.0,1.3],[2.5,1.3],[2.0,1.3],[1.5,1.3]]
+        """
 
-        if data.shape != (4100, 4100):
-            logging.warning(f'Skipping {fn}! {data.shape}')
-            continue
+        image_data = []
+        mjds = []
+        for i, fn in enumerate(images):
+            with fits.open(fn) as han:
+                data = han[0].data
+                header = han[0].header
 
-        reference_date = header['DATE-AVG']
-        t = time.Time(reference_date, format='isot')
-        logging.debug(f'Image {fn} taken on {reference_date}')
-        mjds.append(t.mjd)
-        image_data.append(np.copy(data))
+            if data.shape != (4100, 4100):
+                logging.warning(f'Skipping {fn}! {data.shape}')
+                continue
 
-    mjds = np.array(mjds)
-    logging.debug(f'Loaded into memory patches taken on these dates {mjds}')
-    image_data = np.array(image_data)
+            reference_date = header['DATE-AVG']
+            t = time.Time(reference_date, format='isot')
+            logging.debug(f'Image {fn} taken on {reference_date}')
+            mjds.append(t.mjd)
+            image_data.append(np.copy(data))
 
-    # pass the list of data section into stack in order.
-    args = np.argsort(mjds)
-    mjds = mjds[args]
-    image_data = image_data[args]
+        mjds = np.array(mjds)
+        logging.debug(f'Loaded into memory patches taken on these dates {mjds}')
+        image_data = np.array(image_data)
 
-    pix_scale = abs(header['CD1_1'] * 3600.0)
-    for rate in rates:
-        shifted = shift(image_data, mjds, rate[0], rate[1], pix_scale,
-                        rf=rep_fact, stacking_mode='MEDIAN', mid_mjd=mid_mjd)
-        fits.writeto(f'{output_dir}/shifted_{rate[0]}_{rate[1]}.fits', shifted, overwrite=True)
+        # pass the list of data section into stack in order.
+        args = np.argsort(mjds)
+        mjds = mjds[args]
+        image_data = image_data[args]
+
+        pix_scale = abs(header['CD1_1'] * 3600.0)
+        for rate in rates:
+            shifted = shift(image_data, mjds, rate[0], rate[1], pix_scale,
+                            rf=rep_fact, stacking_mode='MEDIAN', mid_mjd=mid_mjd)
+            fits.writeto(f'{output_dir}/shifted_{rate[0]}_{rate[1]}.fits', shifted, overwrite=True)
 
 
 if __name__ == "__main__":
