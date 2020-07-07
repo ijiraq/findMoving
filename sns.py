@@ -139,10 +139,9 @@ def shift_rates(r_min, r_max, angle_min, angle_max):
     @param angle_max: maximum angle to shift at (degrees)
     """
     rates = []
-    for dr in np.linspace(r_min, r_max, int((r_max - r_min) / 0.25) + 1):
-        for dd in np.linspace(angle_min, angle_max, int((angle_max-angle_min) / .25) + 1):
-            rates.append([dr*units.arcsecond/units.hour, dd*units.degree])
-            logging.debug(f'Rate: {dr} and Angel:{dd}')
+    for dd in np.linspace(angle_min, angle_max, int((angle_max - angle_min) / .25) + 1):
+        for dr in np.linspace(r_min, r_max, int((r_max - r_min) / 0.25) + 1):
+            rates.append([dr * units.arcsecond / units.hour, dd * units.degree])
     return rates
 
 
@@ -222,17 +221,18 @@ def main():
     rates = shift_rates(1, 5, -3, 3)
 
     # Project the input images to the same grid using interpolation
-    hdu_idx = {'image': 1, 'mask': 2, 'variance': 3}
+    hdu_idx = {'image': 1, 'mask': 2, 'variance': 3, 'weight': 3}
     reference_date = mid_exposure_mjd(reference_hdu[0])
     for rate in rates:
         stack_input = []
+        stack_weights = []
         logging.info(f'stacking at rate/angle set: {rate}')
         ccd_data = {}
         for hdu in hdus:
             wcs_header = hdu[1].header.copy()
             dt = (mid_exposure_mjd(hdu[0]) - reference_date)
-            wcs_header['CRVAL1'] += (rate[0]*dt*np.cos(rate[1])).to('degree').value
-            wcs_header['CRVAL2'] += (rate[0]*dt*np.sin(rate[1])).to('degree').value
+            wcs_header['CRVAL1'] += (rate[0]*dt*np.cos(rate[1].to('radian').value)).to('degree').value
+            wcs_header['CRVAL2'] += (rate[0]*dt*np.sin(rate[1].to('radian').value)).to('degree').value
             for layer in hdu_idx:
                 data = hdu[hdu_idx[layer]].data
                 if layer == 'variance':
@@ -248,13 +248,15 @@ def main():
                                                    unit='adu',
                                                    uncertainty=ccd_data['variance']),
                                            WCS(reference_hdu[1].header)))
+            # stack_weights.append(1/ccd_data['weight'].data)
         combiner = Combiner(stack_input)
+        # combiner.weights = np.array(stack_weights)
         stacked_image = combiner.average_combine()
-        fits.writeto(f'{output_dir}/{reference_filename}-{rate[0].value}-{rate[1].value}.fits',
-                     data=stacked_image.data)
-        print(stacked_image.header)
-
-        break
+        output_hdu = fits.HDUList()
+        output_hdu.append(fits.PrimaryHDU(header=reference_hdu[0].header))
+        output_hdu.append(fits.ImageHDU(data=stacked_image.data, header=reference_hdu[1].header))
+        output_hdu.writeto(f'{output_dir}/{reference_filename}-{rate[0].value}-{rate[1].value}.fits',
+                           overwrite=True)
 
 
 if __name__ == "__main__":
