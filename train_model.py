@@ -267,7 +267,7 @@ def main():
     logging.info("Building input dataset for training.")
     training_data, validation_data, training_classes, validation_classes = \
         load_training_and_validation_sets(num_samples=2000, num_pairs=100,
-                                          image_dir='./data/4,4/',
+                                          image_dir='./data/4,4/', random=False,
                                           planted_list_dir='./data/03068/HSC-R2/')
     logging.info("Constructing the model framework.")
     model = get_cnn_model()
@@ -275,7 +275,7 @@ def main():
     history = train_and_validate_the_model(model, training_data, training_classes,
                                            validation_data, validation_classes, epochs=50)
     logging.info("Plotting the history.")
-    plot_training_outcome(history.history)
+    plot_training_outcome(history.history, output_file_base='grid')
     return model
 
 
