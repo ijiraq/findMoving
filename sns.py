@@ -221,9 +221,11 @@ def main():
             dt = (mid_exposure_mjd(hdu[0]) - reference_date)
             wcs['CRVAL1'] += (rate[0]*dt*np.cos(rate[1])).to('degree').value
             wcs['CRVAL2'] += (rate[0]*dt*np.sin(rate[1])).to('degree').value 
-            nddata_parts = []
+            nddata_dict = {}
             for layer in hdu_idx:
-            stack_input.append((data, wcs))
+                nddata_data[layer]=reproject_interp((hdu[layer].data, wcs), wcs_out, shape_out=shape_out)
+            NDData(**nddata_dict)
+                stack_input.append((data, wcs))
         logging.info('coadd started')
         array, footprint = reproject_and_coadd(stack_input, 
                                                wcs_out, 
