@@ -6,9 +6,9 @@ import os
 import numpy as np
 from astropy import time, units
 from astropy.io import fits
-from reproject import reproject_interp
-from reproject.mosaicking import find_optimal_celestial_wcs, reproject_and_coadd
-
+from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
+from astropy.wcs import WCS
+from ccdproc import CCDData, wcs_project, Combiner
 
 STACKING_MODES = {'MEDIAN': np.nanmedian,
                   'MEAN': np.nanmean,
@@ -16,9 +16,31 @@ STACKING_MODES = {'MEDIAN': np.nanmedian,
                   'MAX': np.nanmax,
                   'DEFAULT': np.nanmedian}
 
+LSST_MASK_BITS = {'BAD': 0,
+                  'SAT': 1,
+                  'INTRP': 2,
+                  'EDGE': 4,
+                  'DETECTED': 5,
+                  'DETECTED_NEGATIVE': 6,
+                  'SUSPECT': 7,
+                  'NO_DATA': 8,
+                  'CROSSTALK': 9,
+                  'NOT_BLENDED': 10,
+                  'UNMASKEDNAN': 11,
+                  'BRIGHT_OBJECT': 12,
+                  'CLIPPED': 13,
+                  'INEXACT_PSF': 14,
+                  'REJECTED': 15,
+                  'SENSOR_EDGE': 16,
+                  }
+
+STACK_MASK = (2**LSST_MASK_BITS['EDGE'], 2**LSST_MASK_BITS['NO_DATA'], 2**LSST_MASK_BITS['BRIGHT_OBJECT'],
+              2**LSST_MASK_BITS['SAT'], 2**LSST_MASK_BITS['INTRP'])
+
 
 def shift(data, mjd, rx, ry, pix_scale, rf=3, stacking_mode='MEDIAN', mid_mjd=None):
     """
+    Orginal pixel grid expantion shift+stack code from wes.
 
     :param data: array of fits data
     :type data: np.array
@@ -39,6 +61,7 @@ def shift(data, mjd, rx, ry, pix_scale, rf=3, stacking_mode='MEDIAN', mid_mjd=No
     :rtype: np.array
     :return: combined datas after shifting at dx/dy and combined using stacking_mode.
     """
+    from trippy.trippy_utils import downSample2d
     stacking_mode = STACKING_MODES.get(stacking_mode, STACKING_MODES['DEFAULT'])
 
     print('Shifting at {} {} "/hr'.format(rx, ry))
@@ -107,10 +130,11 @@ def shift(data, mjd, rx, ry, pix_scale, rf=3, stacking_mode='MEDIAN', mid_mjd=No
 
     return stacking_mode(outs, axis=0)
 
+
 def shift_rates(r_min, r_max, angle_min, angle_max):
     """
-    @param rmin: minimum shift rate (''/hour)
-    @param rmax: maximum shift rate (''/hour)
+    @param r_min: minimum shift rate (''/hour)
+    @param r_max: maximum shift rate (''/hour)
     @param angle_min: minimum angle to shift at (degrees)
     @param angle_max: maximum angle to shift at (degrees)
     """
@@ -120,6 +144,7 @@ def shift_rates(r_min, r_max, angle_min, angle_max):
             rates.append([dr*units.arcsecond/units.hour, dd*units.degree])
             logging.debug(f'Rate: {dr} and Angel:{dd}')
     return rates
+
 
 def mid_exposure_mjd(hdu):
 
@@ -144,8 +169,8 @@ def main():
     args = parser.parse_args()
     levels = {'INFO': logging.INFO, 'ERROR': logging.ERROR, 'DEBUG': logging.DEBUG}
     logging.basicConfig(level=levels[args.log_level])
-    pixel_scale = args.pixel_scale*units.arcsec
     ccd = f'{args.ccd:03d}'
+
     reruns = args.rerun[0].split(":")
     if len(reruns) > 2:
         raise ValueError("Don't know what to do with more then 2 rerun directories.")
@@ -156,75 +181,80 @@ def main():
         input_rerun = reruns[0]
         output_rerun = reruns[1]
 
-    input_dir = os.path.join(args.basedir, 'rerun', input_rerun, 'deepCoadd', args.filter, args.tract, args.patch)
-    output_dir = os.path.join(args.basedir, 'rerun', output_rerun, 'deepCoadd', args.filter, args.tract, args.patch)
-
-    images = glob.glob(input_dir + '/diff*.fits')
+    input_dir = os.path.join(args.basedir, 'rerun', input_rerun, args.exptype,
+                             args.pointing[0], args.filter, f'DIFF*-{ccd}.fits')
+    logging.info(f'Loading all images matching pattern: {input_dir}')
+    images = glob.glob(input_dir)
+    if not len(images) > 0:
+        raise OSError(f'No images found using {input_dir}')
     images.sort()
     images = np.array(images)
 
-    mjds = []
-    for i, fn in enumerate(images):
-        with fits.open(fn) as han:
-            header = han[0].header
+    output_dir = os.path.join(args.basedir, 'rerun', output_rerun, args.exptype, args.pointing[0], args.filter)
+    os.makedirs(output_dir, exist_ok=True)
+    logging.info(f'Writing results to {output_dir}')
 
-        reference_date = header['DATE-AVG']
-        t = time.Time(reference_date, format='isot')
-        print(reference_date)
-        mjds.append(t.mjd)
-    mid_mjd = np.mean(np.array(mjds))
+    # In debug mode just do three images or less if there aren't three
+    if logging.getLogger().getEffectiveLevel() < logging.INFO:
+        nimgs = min(6, len(images))
+        stride = max(1, int(len(images)/nimgs-1))
+        logging.debug(f'Selecting {nimgs}, every {stride} image list.')
+        images = images[:nimgs:stride]
+
+    hdus = [fits.open(image) for image in images]
+
+    logging.info(f'Created HDUs for {len(hdus)} fits files from disk')
+
+    argsorted_hdus = time.Time([mid_exposure_mjd(hdu[0]) for hdu in hdus]).argsort()
+    reference_hdu = hdus[argsorted_hdus[len(argsorted_hdus)//2]]
+    print(len(argsorted_hdus)//2)
+    print(images)
+    reference_filename = os.path.splitext(os.path.basename(images[argsorted_hdus[len(argsorted_hdus)//2]]))[0]
+    logging.debug(f'Will use {reference_filename} as base name for storage.')
+    logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
 
     if 'shiftOne' in output_dir:
-        images = images[0::3]
+        hdus = hdus[0::3]
     if 'shiftTwo' in output_dir:
-        images = images[1::3]
+        hdus = hdus[1::3]
     elif 'shiftThree' in output_dir:
-        images = images[2::3]
+        hdus = hdus[2::3]
+    rates = shift_rates(1, 5, -3, 3)
 
-    rates = []
-    for dr in np.linspace(1.0, 5.0, int((5.0 - 1.0) / 0.25) + 1):
-        for dd in np.linspace(-3.0, 3.0, int(6.0 / .25) + 1):
-            rates.append([dr, dd])
-            logging.debug(f'Rate: {dr} and Angel:{dd}')
-
-    """
-        rates = [[4.0,-2.6],[3.5,-2.6],[3.0,-2.6],[2.5,-2.6],[2.0,-2.6],[1.5,-2.6],
-        [4.0,0.0],[3.5,0.0],[3.0,0.0],[2.5,0.0],[2.0,0.0],[1.5,0.0],
-             [4.0,-1.3],[3.5,-1.3],[3.0,-1.3],[2.5,-1.3],[2.0,-1.3],[1.5,-1.3],
-             [4.0,1.3],[3.5,1.3],[3.0,1.3],[2.5,1.3],[2.0,1.3],[1.5,1.3]]
-    """
-
-    image_data = []
-    mjds = []
-    for i, fn in enumerate(images):
-        with fits.open(fn) as han:
-            data = han[0].data
-            header = han[0].header
-
-        if data.shape != (4100, 4100):
-            logging.warning(f'Skipping {fn}! {data.shape}')
-            continue
-
-        reference_date = header['DATE-AVG']
-        t = time.Time(reference_date, format='isot')
-        logging.debug(f'Image {fn} taken on {reference_date}')
-        mjds.append(t.mjd)
-        image_data.append(np.copy(data))
-
-    mjds = np.array(mjds)
-    logging.debug(f'Loaded into memory patches taken on these dates {mjds}')
-    image_data = np.array(image_data)
-
-    # pass the list of data section into stack in order.
-    args = np.argsort(mjds)
-    mjds = mjds[args]
-    image_data = image_data[args]
-
-    pix_scale = abs(header['CD1_1'] * 3600.0)
+    # Project the input images to the same grid using interpolation
+    hdu_idx = {'image': 1, 'mask': 2, 'variance': 3}
+    reference_date = mid_exposure_mjd(reference_hdu[0])
     for rate in rates:
-        shifted = shift(image_data, mjds, rate[0], rate[1], pix_scale,
-                        rf=rep_fact, stacking_mode='MEDIAN', mid_mjd=mid_mjd)
-        fits.writeto(f'{output_dir}/shifted_{rate[0]}_{rate[1]}.fits', shifted, overwrite=True)
+        stack_input = []
+        logging.info(f'stacking at rate/angle set: {rate}')
+        ccd_data = {}
+        for hdu in hdus:
+            wcs_header = hdu[1].header.copy()
+            dt = (mid_exposure_mjd(hdu[0]) - reference_date)
+            wcs_header['CRVAL1'] += (rate[0]*dt*np.cos(rate[1])).to('degree').value
+            wcs_header['CRVAL2'] += (rate[0]*dt*np.sin(rate[1])).to('degree').value
+            for layer in hdu_idx:
+                data = hdu[hdu_idx[layer]].data
+                if layer == 'variance':
+                    data = VarianceUncertainty(data)
+                elif layer == 'mask':
+                    data = bitfield_to_boolean_mask(data, ignore_flags=STACK_MASK, flip_bits=True)
+                ccd_data[layer] = data
+            logging.info(f'Adding {hdu[0]} to projected stack.')
+            stack_input.append(wcs_project(CCDData(ccd_data['image'],
+                                                   mask=ccd_data['mask'],
+                                                   header=wcs_header,
+                                                   wcs=WCS(wcs_header),
+                                                   unit='adu',
+                                                   uncertainty=ccd_data['variance']),
+                                           WCS(reference_hdu[1].header)))
+        combiner = Combiner(stack_input)
+        stacked_image = combiner.average_combine()
+        fits.writeto(f'{output_dir}/{reference_filename}-{rate[0].value}-{rate[1].value}.fits',
+                     data=stacked_image.data)
+        print(stacked_image.header)
+
+        break
 
 
 if __name__ == "__main__":
