@@ -4,9 +4,11 @@ import logging
 import os
 
 import numpy as np
-from astropy import time
+from astropy import time, units
 from astropy.io import fits
-from trippy.trippy_utils import downSample2d
+from reproject import reproject_interp
+from reproject.mosaicking import find_optimal_celestial_wcs, reproject_and_coadd
+
 
 STACKING_MODES = {'MEDIAN': np.nanmedian,
                   'MEAN': np.nanmean,
@@ -14,6 +16,19 @@ STACKING_MODES = {'MEDIAN': np.nanmedian,
                   'MAX': np.nanmax,
                   'DEFAULT': np.nanmedian}
 
+def swarp(hdu, wcs_out, shape_out):
+    """
+    Before we can stack the data we need to project onto an aligned grid.
+    """
+    reproject = reproject_interp
+    new_header = hdu.header.copy()
+    wcs = {'CTYPE1': 'RA---TAN', 'CTYPE2': 'DEC--TAN',
+           'CD1_1': pixel_scale, 'CD1_2': 0.0, 'CD2_2': pixel_scale, 'CD2_1': 0.0}
+    for key in wcs:
+        new_header[key]=wcs[key]
+    return reproject(hdu, new_header, return_footprint=False)
+
+    
 
 def shift(data, mjd, rx, ry, pix_scale, rf=3, stacking_mode='MEDIAN', mid_mjd=None):
     """
@@ -37,6 +52,8 @@ def shift(data, mjd, rx, ry, pix_scale, rf=3, stacking_mode='MEDIAN', mid_mjd=No
     :rtype: np.array
     :return: combined datas after shifting at dx/dy and combined using stacking_mode.
     """
+    from trippy.trippy_utils import downSample2d
+
     stacking_mode = STACKING_MODES.get(stacking_mode, STACKING_MODES['DEFAULT'])
 
     print('Shifting at {} {} "/hr'.format(rx, ry))
@@ -105,97 +122,115 @@ def shift(data, mjd, rx, ry, pix_scale, rf=3, stacking_mode='MEDIAN', mid_mjd=No
 
     return stacking_mode(outs, axis=0)
 
+def shift_rates(r_min, r_max, angle_min, angle_max):
+    """
+    @param rmin: minimum shift rate (''/hour)
+    @param rmax: maximum shift rate (''/hour)
+    @param angle_min: minimum angle to shift at (degrees)
+    @param angle_max: maximum angle to shift at (degrees)
+    """
+    rates = []
+    for dr in np.linspace(r_min, r_max, int((r_max - r_min) / 0.25) + 1):
+        for dd in np.linspace(angle_min, angle_max, int((angle_max-angle_min) / .25) + 1):
+            rates.append([dr*units.arcsecond/units.hour, dd*units.degree])
+            logging.debug(f'Rate: {dr} and Angel:{dd}')
+    return rates
+
+def mid_exposure_mjd(hdu):
+    
+    mjd_start = time.Time(hdu.header['MJD-STR'], format='mjd')
+    mjd_end = time.Time(hdu.header['MJD-END'], format='mjd')
+    return mjd_start + (mjd_end - mjd_start)/2.0
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('rerun', help="rerun directory containing the warped difference images.")
     parser.add_argument('basedir', help="Root directory of LSST pipelined data")
-    parser.add_argument('patch', help="sky patch to process (e.g. 0,0)")
+    parser.add_argument('--pointing', help="sky patch to process (e.g. 0,0)", nargs=1)
+    parser.add_argument('--rerun', help="rerun directory containing the warped difference images.", nargs=1)
     parser.add_argument('--filter', help="Filter to stack", default="HSC-R2")
-    parser.add_argument('--tract', help="Sky tract to process (e.g. 0)", default="0")
-    parser.add_argument('--scaling', help="How much to scale up the images for shift/stack.", default=3)
+    parser.add_argument('--pixel-scale', help="What should the pixel scale of the stack be? (in arcsecond)", 
+                        default=0.16)
+    parser.add_argument('--ccd', help="Which CCD to stack?", type=int, default=0)
+    parser.add_argument('--exptype', help="Whay type of exposures to coadd?", default='deepDiff')
+    parser.add_argument('--log-level', help="What level to log at? (ERROR, INFO, DEBUG)", default="ERROR",
+                        choices=['INFO', 'ERROR', 'DEBUG'])
 
     args = parser.parse_args()
-    rep_fact = args.sacling
-    reruns = args.rerun.split(":")
+    levels = {'INFO': logging.INFO, 'ERROR': logging.ERROR, 'DEBUG': logging.DEBUG}
+    logging.basicConfig(level=levels[args.log_level])
+    pixel_scale = args.pixel_scale*units.arcsec
+    ccd = f'{args.ccd:03d}'
+    reruns = args.rerun[0].split(":")
     if len(reruns) > 2:
         raise ValueError("Don't know what to do with more then 2 rerun directories.")
+
     if len(reruns) == 1:
         input_rerun = output_rerun = reruns[0]
     else:
         input_rerun = reruns[0]
         output_rerun = reruns[1]
 
-    input_dir = os.path.join(args.basedir, 'rerun', input_rerun, 'deepCoadd', args.filter, args.tract, args.patch)
-    output_dir = os.path.join(args.basedir, 'rerun', output_rerun, 'deepCoadd', args.filter, args.tract, args.patch)
-
-    images = glob.glob(input_dir + '/diff*.fits')
+    input_dir = os.path.join(args.basedir, 'rerun', input_rerun, args.exptype, 
+                             args.pointing[0], args.filter, f'DIFF*-{ccd}.fits')
+    logging.info(f'Loading all images matching pattern: {input_dir}')
+    images = glob.glob(input_dir)
+    if not len(images) > 0:
+        raise OSError(f'No images found using {input_dir}')
     images.sort()
     images = np.array(images)
 
-    mjds = []
-    for i, fn in enumerate(images):
-        with fits.open(fn) as han:
-            header = han[0].header
+    output_dir = os.path.join(args.basedir, 'rerun', output_rerun, args.exptype, args.pointing[0], args.filter)
+    os.makedirs(output_dir, exist_ok=True)
+    logging.info(f'Writing results to {output_dir}')
 
-        reference_date = header['DATE-AVG']
-        t = time.Time(reference_date, format='isot')
-        print(reference_date)
-        mjds.append(t.mjd)
-    mid_mjd = np.mean(np.array(mjds))
+    hdus = [ fits.open(image) for image in images ]
+
+    # In debug mode just do three images or less if there aren't three
+    if logging.getLogger().getEffectiveLevel() < logging.INFO:
+        stride = len(hdus)/min(5,len(hdus))
+        hdus = hdus[:min(3,len(hdus))]
+
+    logging.info(f'Created HDUs for {len(hdus)} fits files from disk')
+
+    reference_date = time.Time([mid_exposure_mjd(hdu[0]) for hdu in hdus ]).sort()
+    reference_date = reference_date[len(reference_date)//2]
+    logging.debug(f'Determined the reference date to be {reference_date.isot} {reference_date.mjd}')
+
+    wcs_out, shape_out = find_optimal_celestial_wcs([hdu[1] for hdu in hdus], 
+                                                    resolution=pixel_scale, projection='TAN')
+    logging.info(f'Computed the optimal WCS for stacking:')
+    logging.debug(f'{wcs_out}')
 
     if 'shiftOne' in output_dir:
-        images = images[0::3]
+        hdus = hdus[0::3]
     if 'shiftTwo' in output_dir:
-        images = images[1::3]
+        hdus = hdus[1::3]
     elif 'shiftThree' in output_dir:
-        images = images[2::3]
+        hdus = hdus[2::3]
+    rates = shift_rates(1, 5, -3, 3)
 
-    rates = []
-    for dr in np.linspace(1.0, 5.0, int((5.0 - 1.0) / 0.25) + 1):
-        for dd in np.linspace(-3.0, 3.0, int(6.0 / .25) + 1):
-            rates.append([dr, dd])
-            logging.debug(f'Rate: {dr} and Angel:{dd}')
-
-    """
-        rates = [[4.0,-2.6],[3.5,-2.6],[3.0,-2.6],[2.5,-2.6],[2.0,-2.6],[1.5,-2.6],
-        [4.0,0.0],[3.5,0.0],[3.0,0.0],[2.5,0.0],[2.0,0.0],[1.5,0.0],
-             [4.0,-1.3],[3.5,-1.3],[3.0,-1.3],[2.5,-1.3],[2.0,-1.3],[1.5,-1.3],
-             [4.0,1.3],[3.5,1.3],[3.0,1.3],[2.5,1.3],[2.0,1.3],[1.5,1.3]]
-    """
-
-    image_data = []
-    mjds = []
-    for i, fn in enumerate(images):
-        with fits.open(fn) as han:
-            data = han[0].data
-            header = han[0].header
-
-        if data.shape != (4100, 4100):
-            logging.warning(f'Skipping {fn}! {data.shape}')
-            continue
-
-        reference_date = header['DATE-AVG']
-        t = time.Time(reference_date, format='isot')
-        logging.debug(f'Image {fn} taken on {reference_date}')
-        mjds.append(t.mjd)
-        image_data.append(np.copy(data))
-
-    mjds = np.array(mjds)
-    logging.debug(f'Loaded into memory patches taken on these dates {mjds}')
-    image_data = np.array(image_data)
-
-    # pass the list of data section into stack in order.
-    args = np.argsort(mjds)
-    mjds = mjds[args]
-    image_data = image_data[args]
-
-    pix_scale = abs(header['CD1_1'] * 3600.0)
+    # Project the input images to the same grid using interpolation
+    hdu_idx = {'data': 1, 'mask': 2, 'variance': 3}
     for rate in rates:
-        shifted = shift(image_data, mjds, rate[0], rate[1], pix_scale,
-                        rf=rep_fact, stacking_mode='MEDIAN', mid_mjd=mid_mjd)
-        fits.writeto(f'{output_dir}/shifted_{rate[0]}_{rate[1]}.fits', shifted, overwrite=True)
-
+        stack_input = []
+        logging.info(f'stacking at rate/angle set: {rate}')
+        for hdu in hdus:
+            data = hdu[1].data
+            wcs = hdu[1].header.copy()
+            dt = (mid_exposure_mjd(hdu[0]) - reference_date)
+            wcs['CRVAL1'] += (rate[0]*dt*np.cos(rate[1])).to('degree').value
+            wcs['CRVAL2'] += (rate[0]*dt*np.sin(rate[1])).to('degree').value 
+            nddata_parts = []
+            for layer in hdu_idx:
+            stack_input.append((data, wcs))
+        logging.info('coadd started')
+        array, footprint = reproject_and_coadd(stack_input, 
+                                               wcs_out, 
+                                               shape_out=shape_out, 
+                                               reproject_function=reproject_interp)
+        logging.info('writing stack to disk')
+        fits.ImageHDU(data=array, header=wcs_out.to_header()).writeto(f'{output_dir}/shifted_{ccd}_{rate[0].value}_{rate[1].value}.fits')
 
 if __name__ == "__main__":
     main()
