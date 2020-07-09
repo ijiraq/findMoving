@@ -3,7 +3,6 @@ import glob
 import logging
 import os
 import numpy as np
-numpy=np
 from astropy import time, units
 from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
@@ -11,6 +10,7 @@ from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
 
 
+numpy = np
 
 STACKING_MODES = {'MEDIAN': np.nanmedian,
                   'MEAN': np.nanmean,
@@ -42,6 +42,7 @@ HSC_HDU_MAP = {'image': 1, 'mask': 2, 'variance': 3, 'weight': 3}
 STACK_MASK = (2**LSST_MASK_BITS['EDGE'], 2**LSST_MASK_BITS['NO_DATA'], 2**LSST_MASK_BITS['BRIGHT_OBJECT'],
               2**LSST_MASK_BITS['SAT'], 2**LSST_MASK_BITS['INTRP'])
 
+
 def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
     """
     set the mask on 'data' to include bits in mask that are set to STACK_MASK
@@ -53,9 +54,9 @@ def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
     if isinstance(data, CCDData):
         init_mask = data.mask
         data = data.data
-    # Build a boolian mask from the bits, we want masked pixels to be the one sets as ignore_flags
+    # Build a boolean mask from the bits, we want masked pixels to be the one sets as ignore_flags
     # so flip_bits is True
-    mask = bitfield_to_boolean_mask(bitmask, ignore_flags=STACK_MASK, flip_bits=True)
+    mask = bitfield_to_boolean_mask(bitmask, ignore_flags=mask_bits, flip_bits=True)
     if init_mask is not None:
         mask = (mask & init_mask)
     # Set masked entries to 'nan'
@@ -63,16 +64,19 @@ def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
     return data
 
 
-
-def swarp(hdus, reference_hdu, rate, hdu_idx=HSC_HDU_MAP, stacking_mode=None):
+def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
     """
     use the WCS to project all image to the 'reference_hdu' shifting the the CRVAL of each image by rate*dt
+    :param stacking_mode: what process to use for combinnig images MEAN or MEDIAN
+    :param hdu_idx: which HDU in each HDUList listed in hdus is the ImageData in?
     :param hdus: list of HDUList
     :param reference_hdu: reference HDUList in hdus
     :param rate: dictionary with the ra/dec shift rates.
-    :return:
+    :return: fits.HDUList
     """
     # Project the input images to the same grid using interpolation
+    if hdu_idx is None:
+        hdu_idx = HSC_HDU_MAP
     reference_date = mid_exposure_mjd(reference_hdu[0])
     stack_input = []
     logging.info(f'stacking at rate/angle set: {rate}')
@@ -101,8 +105,8 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=HSC_HDU_MAP, stacking_mode=None):
         logging.debug(f'{stack_input[-1].header}')
     if rate is not None:
         combiner = Combiner(stack_input)
-        if stack_mode == 'MEDIAN':
-            stacked_image = cominer.median_combine()
+        if stacking_mode == 'MEDIAN':
+            stacked_image = combiner.median_combine()
         else:
             stacked_image = combiner.average_combine()
         return fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0]),
@@ -155,7 +159,9 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
             x2 = int(min(output_array.shape[1], xp+padding))
             xl = xo - x1
             xu = xl + xp - xo
-            logging.debug(f'Taking section {y1,y2,x1,x2} shifting, cutting out {yl,yu,xl,xu} and  placing in {yo,yp,xo,xp} ')
+            logging.debug(f'Taking section {y1,y2,x1,x2} shifting, '
+                          f'cutting out {yl,yu,xl,xu} '
+                          f'and  placing in {yo,yp,xo,xp} ')
             # outs contains the shifted versions of the arrays after down sampling.
             outs = []
             variances = []
@@ -166,7 +172,9 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
                 wcs = WCS(hdu[1].header)
                 dra = (rx*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
                 ddec = (ry*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
-                logging.debug(f'Working on array {hdu[0]} of size {hdu[1].data.shape} and shifting by dx {dra} and dy {ddec}')
+                logging.debug(f'Working on array {hdu[0]} of size '
+                              f'{hdu[1].data.shape} and shifting by '
+                              f'dx {dra} and dy {ddec}')
                 # Use the WCS to determine the x/y shit to allow for different imager orientations.
                 sky_coord = wcs.wcs_pix2world((hdu[1].data.shape,), 0)
                 logging.debug(f'Corner of the FOV is {sky_coord}')
@@ -181,11 +189,12 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
                 logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
 
                 # Weight by the variance. 
-                rep = np.repeat(np.repeat(hdu[HSC_HDU_MAP['image']].data[y1:y2,x1:x2], rf, axis=0), 
+                rep = np.repeat(np.repeat(hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf, axis=0),
                                 rf, axis=1)
                 logging.debug("Data from shape {} has been sampled into shape {}".format(
-                    hdu[1].data[y1:y2,x1:x2].shape, rep.shape))
-                variance = np.repeat(np.repeat(hdu[HSC_HDU_MAP['variance']].data[y1:y2,x1:x2], rf, axis=0), rf, axis=1)
+                    hdu[1].data[y1:y2, x1:x2].shape, rep.shape))
+                variance = np.repeat(np.repeat(hdu[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf, axis=0),
+                                     rf, axis=1)
                 rep /= variance
                 # dest_bounds are range of the index where the data should go into
                 # source_bounds are the range of the index where the data come from.
@@ -202,18 +211,18 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
                         source_bounds[axis] = 0, rep.shape[axis] - offsets[axis]
                 logging.debug(f'Placing data from section {source_bounds} into {dest_bounds}')
                 rep[dest_bounds[0][0]:dest_bounds[0][1], dest_bounds[1][0]:dest_bounds[1][1]] = \
-                        rep[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
+                    rep[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
                 variance[dest_bounds[0][0]:dest_bounds[0][1], dest_bounds[1][0]:dest_bounds[1][1]] = \
-                        variance[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
+                    variance[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
                 outs.append(rep)
                 variances.append(variance)
             logging.debug(f'Stacking {len(outs)} images of shape {outs[0].shape}')
             logging.debug(f'Combining shifted pixels')
             stacked_variance = STACKING_MODES['MEAN'](np.array(variances), axis=0)
             stacked_data = stacking_mode(np.array(outs), axis=0)/stacked_variance
-            logging.debug(f'Got back stack of shape {stacked_data.shape}, downSamping...')
-            logging.debug(f'Downsampling to original grid (poorman quick interp method)')
-            output_array[yo:yp,xo:xp] = downSample2d(stacked_data, rf)[yl:yu,xl:xu]
+            logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
+            logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
+            output_array[yo:yp, xo:xp] = downSample2d(stacked_data, rf)[yl:yu, xl:xu]
     logging.debug(f'Down sampled image has shape {output_array.shape}')
     return fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
                          fits.ImageHDU(data=output_array, header=reference_hdu[1].header)])
@@ -225,6 +234,8 @@ def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
     @param r_max: maximum shift rate (''/hour)
     @param angle_min: minimum angle to shift at (degrees)
     @param angle_max: maximum angle to shift at (degrees)
+    @param angle_step:
+    @param r_step:
     """
     rates = []
     for dd in np.linspace(angle_min, angle_max, int((angle_max - angle_min) / angle_step) + 1):
@@ -264,9 +275,10 @@ def main():
     parser.add_argument('--angle-min', type=float, default=-3, help='Minimum angle to shift at (deg)')
     parser.add_argument('--angle-max', type=float, default=3, help='Maximum angle to shift at (deg)')
     parser.add_argument('--angle-step', type=float, default=0.25, help='Stepsize for shift angle (deg)')
-    parser.add_argument('--clip', type=int, default=None, help='Mask pixel whose variance is clip times the median variance')
-    parser.add_argument('--section-size', type=int, default=1024, help='Break images into section when stacking (conserves memory)')
-
+    parser.add_argument('--clip', type=int, default=None,
+                        help='Mask pixel whose variance is clip times the median variance')
+    parser.add_argument('--section-size', type=int, default=1024,
+                        help='Break images into section when stacking (conserves memory)')
 
     args = parser.parse_args()
     levels = {'INFO': logging.INFO, 'ERROR': logging.ERROR, 'DEBUG': logging.DEBUG}
@@ -322,8 +334,10 @@ def main():
 
     # Create groups of stacks
     sub_stacks = []
+    sub_images = []
     for i in range(args.n_sub_stacks):
         sub_stacks.append(hdus[i::args.n_sub_stacks])
+        sub_images.append(images[i::args.n_sub_stacks])
 
     if not args.swarp and args.rectify:
         # Need to project all images to same WCS before passing to stack.
@@ -344,12 +358,11 @@ def main():
             logging.debug(f'Median variancs is {hdu[HSC_HDU_MAP["variance"]].header["MVAR"]}')
             bright_mask = hdu[HSC_HDU_MAP['variance']].data > hdu[HSC_HDU_MAP['variance']].header['MVAR']*args.clip
             detected_mask = bitfield_to_boolean_mask(hdu[HSC_HDU_MAP['mask']].data,
-                                                    ignore_flags=LSST_MASK_BITS['DETECTED'],
-                                                    flip_bits=True)
+                                                     ignore_flags=LSST_MASK_BITS['DETECTED'],
+                                                     flip_bits=True)
             logging.debug(f'Bright Mask flagged {np.sum(bright_mask)}')
             logging.debug(f'Clip setting {np.sum(bright_mask & detected_mask)} to nan')
             hdu[HSC_HDU_MAP['image']].data[bright_mask & detected_mask] = np.nan
-
 
     if args.mask:
         # set masked pixel to 'nan' before sending for stacking
@@ -365,8 +378,11 @@ def main():
             output = stack_function(sub_stack, reference_hdu, {'dra': dra, 'ddec': ddec}, 
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
             logging.debug(f'Got stack result {output}')
-            output.writeto(f'{output_dir}/{reference_filename}-{index:02d}-{rate["rate"]:04.2f}-{rate["angle"]:04.2f}.fits', 
-                           overwrite=True)
+            # Keep a history of which visits when into the stack.
+            for i_index, image_name in enumerate(sub_images[index]):
+                output[0].header[f'input{i_index:03d}'] = image_name
+            output_filename = f'{reference_filename}-{index:02d}-{rate["rate"]:+04.2f}-{rate["angle"]:+04.2f}.fits'
+            output.writeto(os.path.join(output_dir, output_filename))
 
 
 if __name__ == "__main__":
