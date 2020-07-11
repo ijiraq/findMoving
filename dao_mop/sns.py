@@ -8,6 +8,7 @@ from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
+import sys
 
 
 numpy = np
@@ -381,9 +382,10 @@ def main():
             # Keep a history of which visits when into the stack.
             for i_index, image_name in enumerate(sub_images[index]):
                 output[0].header[f'input{i_index:03d}'] = image_name
-            output_filename = f'{reference_filename}-{index:02d}-{rate["rate"]:+04.2f}-{rate["angle"]:+04.2f}.fits'
+            output_filename = f'{reference_filename}-{index:02d}-{rate["rate"]:+05.2f}-{rate["angle"]:+05.2f}.fits'
             output.writeto(os.path.join(output_dir, output_filename))
 
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
