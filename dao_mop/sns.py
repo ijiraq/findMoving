@@ -118,10 +118,10 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
 
 def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=1024):
     """
-    Orginal pixel grid expantion shift+stack code from wes.
+    Original pixel grid expansion shift+stack code from wes.
 
     :rtype: fits.HDUList
-    :return: combined datas after shifting at dx/dy and combined using stacking_mode.
+    :return: combined data after shifting at dx/dy and combined using stacking_mode.
     """
     from trippy.trippy_utils import downSample2d
     logging.info('Combining images using {stacking_mode}')
@@ -179,7 +179,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
                 # Use the WCS to determine the x/y shit to allow for different imager orientations.
                 sky_coord = wcs.wcs_pix2world((hdu[1].data.shape,), 0)
                 logging.debug(f'Corner of the FOV is {sky_coord}')
-                # Add offset needed to aling the corner of the image with the reference image.
+                # Add offset needed to align the corner of the image with the reference image.
                 dra -= (ref_skycoord[0][0] - sky_coord[0][0])*units.degree
                 ddec -= (ref_skycoord[0][1] - sky_coord[0][1])*units.degree
                 c1 = wcs.wcs_world2pix(sky_coord, 0)
@@ -220,7 +220,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
             logging.debug(f'Stacking {len(outs)} images of shape {outs[0].shape}')
             logging.debug(f'Combining shifted pixels')
             stacked_variance = STACKING_MODES['MEAN'](np.array(variances), axis=0)
-            stacked_data = stacking_mode(np.array(outs), axis=0)/stacked_variance
+            stacked_data = stacking_mode(np.array(outs), overwrite_input=True, axis=0)/stacked_variance
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
             output_array[yo:yp, xo:xp] = downSample2d(stacked_data, rf)[yl:yu, xl:xu]
@@ -258,10 +258,10 @@ def main():
     parser.add_argument('--pointing', help="sky patch to process (e.g. 0,0)", nargs=1)
     parser.add_argument('--rerun', help="rerun directory containing the warped difference images.", nargs=1)
     parser.add_argument('--filter', help="Filter to stack", default="HSC-R2")
-    parser.add_argument('--pixel-scale', help="What should the pixel scale of the stack be? (in arcsecond)",
+    parser.add_argument('--pixel-scale', help="What should the pixel scale of the stack be? (in arc-seconds)",
                         default=0.16)
     parser.add_argument('--ccd', help="Which CCD to stack?", type=int, default=0)
-    parser.add_argument('--exptype', help="Whay type of exposures to coadd?", default='deepDiff')
+    parser.add_argument('--exptype', help="What type of exposures to co-add?", default='deepDiff')
     parser.add_argument('--swarp', action='store_true', help="Use projection to do shifts, default is pixel shifts.")
     parser.add_argument('--stack-mode', choices=['MEAN', 'MEDIAN'], default='MEDIAN', help="How to combine images.")
     parser.add_argument('--rectify', action='store_true', help="Rectify images to WCS of reference, otherwise "
@@ -272,10 +272,10 @@ def main():
     parser.add_argument('--n-sub-stacks', default=3, help='How many sub-stacks should we produce')
     parser.add_argument('--rate-min', type=float, default=1, help='Minimum shift rate ("/hr)')
     parser.add_argument('--rate-max', type=float, default=5, help='Maximum shift rate ("/hr)')
-    parser.add_argument('--rate-step', type=float, default=0.25, help='Stepsize for shift rate ("/hr)')
+    parser.add_argument('--rate-step', type=float, default=0.25, help='Step-size for shift rate ("/hr)')
     parser.add_argument('--angle-min', type=float, default=-3, help='Minimum angle to shift at (deg)')
     parser.add_argument('--angle-max', type=float, default=3, help='Maximum angle to shift at (deg)')
-    parser.add_argument('--angle-step', type=float, default=0.25, help='Stepsize for shift angle (deg)')
+    parser.add_argument('--angle-step', type=float, default=0.25, help='Step-size for shift angle (deg)')
     parser.add_argument('--clip', type=int, default=None,
                         help='Mask pixel whose variance is clip times the median variance')
     parser.add_argument('--section-size', type=int, default=1024,
@@ -386,6 +386,7 @@ def main():
             output.writeto(os.path.join(output_dir, output_filename))
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
