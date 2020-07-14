@@ -76,7 +76,7 @@ def insert_plant_list_into_database(this_table, plant_list_db='plant_list.db'):
     return
 
 
-def get_visit_plant_list(visit, plant_list_db):
+def get_visit_plant_list(visit, plant_list_db, plant_mag_limit=None):
     """
     Retrieve all the sources associated with the given visit into a astropy.table.Table
 
@@ -86,6 +86,8 @@ def get_visit_plant_list(visit, plant_list_db):
     with sqlite3.connect(plant_list_db) as db:
         cursor = db.cursor()
         sql = f'SELECT * FROM `fakes` WHERE `visit`={visit}'
+        if plant_mag_limit is not None:
+            sql += f' AND `mag` < {plant_mag_limit} '
         result = numpy.array(cursor.execute(sql).fetchall())
         colnames = [x[0] for x in cursor.description]
     # logging.debug(f'Loaded columns: {colnames}')
@@ -130,7 +132,7 @@ def load_plantlist(filename):
     return this_table
 
 
-def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1000, extno=1):
+def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1000, extno=1, plant_mag_limit=25):
     """
     retrieve image sections from image sets whose files names are given in pairs in the pairs list.
 
@@ -168,7 +170,7 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
             if shape is None:
                 shape = images[visit].shape
             assert shape == images[visit].shape, "All images must be the same dimension and registered."
-            plant_list = get_visit_plant_list(visit, full_plant_list)
+            plant_list = get_visit_plant_list(visit, full_plant_list, plant_mag_limit)
             logging.info("{} sources planted into visit {}".format(len(plant_list), visit))
 
         # Make a list of X/Y coordinates to for the centres of cutouts to make

@@ -114,7 +114,8 @@ def load_training_and_validation_sets(image_dir="./data",
                                       random=True,
                                       num_samples=1000,
                                       num_per_pair=2,
-                                      num_pairs=None):
+                                      num_pairs=None,
+                                      plant_mag_limit=25):
     """
     Loads from disk the image cutout sections (some with moving sources, some without) and returns as
     two groups of inputs shaped for the CNN model we will use.
@@ -139,7 +140,8 @@ def load_training_and_validation_sets(image_dir="./data",
                                                                    table_of_planted_sources,
                                                                    size=size,
                                                                    random=random,
-                                                                   num_samples=num_samples)
+                                                                   num_samples=num_samples,
+                                                                   plant_mag_limit=plant_mag_limit)
 
     # the data_model.cut has a pair index first index and we don't care about image pair
     # index here.  Reshape the data arrays to remove grouping by image pairs
@@ -283,6 +285,8 @@ def main(model_filename="trained_model.ker"):
     parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
     parser.add_argument('--cutout-dimension', help='size, in pixels, of cutouts dimension to work with', type=int,
                         default=CUTOUT_DIMENSION)
+    parser.add_argument('--plant-mag-limit', help='faintest planted source to using in training', default=25)
+
     args = parser.parse_args()
     log_levels = {'DEBUG': logging.DEBUG, 'INFO': logging.INFO, 'ERROR': logging.ERROR}
     logging.basicConfig(level=log_levels[args.log_level])
@@ -296,7 +300,8 @@ def main(model_filename="trained_model.ker"):
                                           test_fraction=args.test_fraction,
                                           planted_list_dir=args.plant_list_dir,
                                           num_per_pair=args.num_per_pair,
-                                          size=args.cutout_dimension)
+                                          size=args.cutout_dimension,
+                                          plant_mag_limit=args.plant_mag_limit)
     logging.info("Constructing the model framework.")
     model = get_cnn_model(channels=args.num_per_pair, dimension=args.cutout_dimension)
     logging.info("Training the model.")
