@@ -5,7 +5,8 @@ setup(
     packages=find_packages(),
     entry_points={
         "console_scripts": [
-            "sns = dao_mop.sns:main",
+            "shift_and_stack = dao_mop.sns:main",
+            "train_mop_model = dao_mop.train_model:main"
         ],
     }
 )
