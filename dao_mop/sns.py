@@ -356,7 +356,7 @@ def main():
         logging.info(f'Masking pixels in image whose variance exceeds {args.clip} times the median variance.')
         for hdu in hdus:
             hdu[HSC_HDU_MAP['variance']].header['MVAR'] = numpy.nanmedian(hdu[HSC_HDU_MAP['variance']].data)
-            logging.debug(f'Median variancs is {hdu[HSC_HDU_MAP["variance"]].header["MVAR"]}')
+            logging.debug(f'Median variance is {hdu[HSC_HDU_MAP["variance"]].header["MVAR"]}')
             bright_mask = hdu[HSC_HDU_MAP['variance']].data > hdu[HSC_HDU_MAP['variance']].header['MVAR']*args.clip
             detected_mask = bitfield_to_boolean_mask(hdu[HSC_HDU_MAP['mask']].data,
                                                      ignore_flags=LSST_MASK_BITS['DETECTED'],
