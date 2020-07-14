@@ -14,7 +14,9 @@ Scikit learn is a Python module for machine learning built on SciPy.
 2. model selection and validation module
 3. Data conversion and Data loading module
 """
+import argparse
 import logging
+import sys
 import numpy as np
 import keras
 from keras.layers import BatchNormalization
@@ -26,7 +28,7 @@ from keras.layers.pooling import MaxPooling2D
 from keras.models import Model
 from matplotlib import pyplot as plt
 from sklearn import model_selection as md
-import data_model
+from . import data_model
 
 CUTOUT_DIMENSION = 64
 NUM_CHANNELS = 2
@@ -111,11 +113,13 @@ def load_training_and_validation_sets(image_dir="./data",
                                       size=CUTOUT_DIMENSION,
                                       random=True,
                                       num_samples=1000,
+                                      num_per_pair=2,
                                       num_pairs=None):
     """
     Loads from disk the image cutout sections (some with moving sources, some without) and returns as
     two groups of inputs shaped for the CNN model we will use.
 
+    :type num_per_pair: int
     :param image_dir: directory containing image patches that will be loaded from disk
     :param planted_list_dir: directory containing files with lists of planted sources.
     :param test_fraction: what fraction of the input set will be used for training.
@@ -128,7 +132,8 @@ def load_training_and_validation_sets(image_dir="./data",
     """
 
     # Load the image data from disk
-    image_pairs = data_model.build_image_pair_list(image_directory=image_dir, num_pairs=num_pairs)
+    image_pairs = data_model.build_image_pair_list(image_directory=image_dir, num_pairs=num_pairs,
+                                                   num_per_pair=num_per_pair)
     table_of_planted_sources = data_model.build_table_of_planted_sources(plant_list_directory=planted_list_dir)
     source_cutouts, source_targets, blank_cutouts = data_model.cut(image_pairs,
                                                                    table_of_planted_sources,
@@ -139,17 +144,17 @@ def load_training_and_validation_sets(image_dir="./data",
     # the data_model.cut has a pair index first index and we don't care about image pair
     # index here.  Reshape the data arrays to remove grouping by image pairs
     # Need to use the same number of blanks as source cutouts.
-    logging.info("Loading data resulted in {} possible source cutouts.".format(source_cutouts.shape[0]))
-    logging.info("Loading data resulted in {} possible blank cutouts.".format(blank_cutouts.shape[0]))
+    logging.debug("Loading data resulted in {} possible source cutouts.".format(source_cutouts.shape[0]))
+    logging.debug("Loading data resulted in {} possible blank cutouts.".format(blank_cutouts.shape[0]))
     num_of_sets_to_use = min(blank_cutouts.shape[0], source_cutouts.shape[0])
-    logging.info("This is how many cutouts we will use: {}".format(num_of_sets_to_use))
+    logging.debug("This is how many cutouts we will use: {}".format(num_of_sets_to_use))
     if num_of_sets_to_use < 1:
         raise ValueError("Too little data for training.")
     # image_cutouts_grouped_by_pair hold the image cutouts in an array with each element having shape 2xndimx2ndim
     np.random.shuffle(source_cutouts)
     np.random.shuffle(blank_cutouts)
     image_cutouts = np.append(source_cutouts[0:num_of_sets_to_use],
-                                              blank_cutouts[0:num_of_sets_to_use], axis=0)
+                              blank_cutouts[0:num_of_sets_to_use], axis=0)
     # tar_bin holds 1 for the source and 0 for the blank cutouts.
     tar_bin = np.append(np.ones(num_of_sets_to_use), np.zeros(num_of_sets_to_use))
     return md.train_test_split(image_cutouts, tar_bin, test_size=test_fraction)
@@ -263,22 +268,45 @@ def train_and_validate_the_model(model, training_data, training_classes, validat
     return history
 
 
-def main():
+def main(model_filename="trained_model.ker"):
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--num-samples', help='How many samples images to create per pair?', default=2000, type=int)
+    parser.add_argument('--num-pairs', help='How many pairs to generate?', default=100, type=int)
+    parser.add_argument('--num-per-pair', help='How many images in a pair?', default=NUM_CHANNELS, type=int)
+    parser.add_argument('--random', help='Should we draw out random image sections or follow a grid?',
+                        action='store_true')
+    parser.add_argument('--epochs', help='How many training epochs to run?', default=50, type=int)
+    parser.add_argument('plant_list_dir', help='Directory containing lists of planted sources in plantList format')
+    parser.add_argument('image_dir', help='Directory containing images used to train the model.')
+    parser.add_argument('--test-fraction', help='Fraction of the model used to validate with.', default=0.3,
+                        type=float)
+    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
+    parser.add_argument('--cutout-dimension', help='size, in pixels, of cutouts dimension to work with', type=int,
+                        default=CUTOUT_DIMENSION)
+    args = parser.parse_args()
+    log_levels = {'DEBUG': logging.DEBUG, 'INFO': logging.INFO, 'ERROR': logging.ERROR}
+    logging.basicConfig(level=log_levels[args.log_level])
     logging.info("Building input dataset for training.")
+
     training_data, validation_data, training_classes, validation_classes = \
-        load_training_and_validation_sets(num_samples=2000, num_pairs=100,
-                                          image_dir='./data/4,4/', random=False,
-                                          planted_list_dir='./data/03068/HSC-R2/')
+        load_training_and_validation_sets(num_samples=args.num_samples,
+                                          num_pairs=args.num_pairs,
+                                          image_dir=args.image_dir,
+                                          random=args.random,
+                                          test_fraction=args.test_fraction,
+                                          planted_list_dir=args.plant_list_dir,
+                                          num_per_pair=args.num_per_pair,
+                                          size=args.cutout_dimension)
     logging.info("Constructing the model framework.")
-    model = get_cnn_model()
+    model = get_cnn_model(channels=args.num_per_pair, dimension=args.cutout_dimension)
     logging.info("Training the model.")
     history = train_and_validate_the_model(model, training_data, training_classes,
-                                           validation_data, validation_classes, epochs=50)
+                                           validation_data, validation_classes, epochs=args.epochs)
     logging.info("Plotting the history.")
     plot_training_outcome(history.history, output_file_base='grid')
-    return model
+    model.save(f'{args.cutout_dimension}_{args.num_per_pair}_{model_filename}')
+    return
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    main().save('trained_model.ker')
+    sys.exit(main())

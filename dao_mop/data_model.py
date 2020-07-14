@@ -30,6 +30,7 @@ def load_plantlist(filename):
     :rtype Table
     """
     # Compare the first line of the file I've been given to be sure it matches what is expected.
+    logging.debug(f'Loading plantList from {filename}')
     plantlist_first_line = '#index ra dec x y rate ("/hr) angle (deg) rate_ra rate_dec mag psf_amp'
     first_line_in_file = open(filename, 'r').readline().strip()
     assert first_line_in_file == plantlist_first_line, \
@@ -92,7 +93,7 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
 
     for pair in pairs:
 
-        logging.info("Creating {} cutouts for image pair ({}, {})".format(num_samples, pair[0], pair[1]))
+        logging.info("Creating {} cutouts for image pair {}".format(num_samples, pair))
         images = {}
 
         # open the two FITS images that are the pair.
@@ -189,25 +190,29 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
     return source_cutouts, source_cutout_targets, blank_cutouts
 
 
-def build_image_pair_list(image_directory, num_pairs=None, random=False, fraction=1.0):
+def build_image_pair_list(image_directory, num_pairs=None, random=False, fraction=1.0, num_per_pair=2):
     """
     Build a list of images to make cutouts from and return list of pairs of images.
     :param image_directory:
     :param num_pairs: How many image pairs to build? None ==> All possible.
+    :param num_per_pair: How many images in a 'pair' (normally 2)
     :param random: should the pairs be random or an iteration over all combinations.
     :param fraction: if random, what fraction of a complete sample should be provided (there will be repeats)?
     :return: list of image pairs
     """
     image_filename_list = numpy.array(glob.glob(os.path.join(image_directory, '*.fits')))
+    logging.debug(f'Got list {image_filename_list} of file in directory {image_directory}')
     if random:
         # Make the pairs via random sampling
         image_pairs = numpy.random.choice(image_filename_list,
-                                          int(fraction * len(image_filename_list) * (len(image_filename_list) - 1), 2),
+                                          int(fraction * len(image_filename_list) * (len(image_filename_list) - 1),
+                                              num_per_pair),
                                           replace=True)
     else:
-        image_pairs = combinations(image_filename_list, 2)
+        image_pairs = combinations(image_filename_list, num_per_pair)
     if num_pairs is not None:
         image_pairs = [x for x in image_pairs][0:num_pairs]
+    logging.debug(f'Sending back {len(image_pairs)} pairs of images.')
     return image_pairs
 
 
@@ -276,7 +281,7 @@ def main():
     """"
     This is the main method which runs this module as a Command Line script.
     """
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--image-directory', default='./',
                         help='name of directory containing images to draw sections from.')
     parser.add_argument('--plant-list-directory', default='./',
@@ -285,6 +290,7 @@ def main():
                         default=1000, help='How many cutouts to draw from the image.')
     parser.add_argument('--npairs', type=int,
                         default=19, help='How many pairs of images do you want to build nsample cutouts of.')
+    parser.add_argument('--num-per-pair', default=2, help='how many images in a pair, normally 2')
     parser.add_argument('--random', action='store_true', default=False,
                         help='Do cutouts as random locations, instead of grid')
     parser.add_argument('--dimension', type=int, default=PIX_CUTOUT_SIZE,
@@ -305,7 +311,7 @@ def main():
     logging.basicConfig(level=level)
 
     # Get the list of pairs of images in image_dir
-    image_pairs = build_image_pair_list(args.image_directory, num_pairs=args.npairs)
+    image_pairs = build_image_pair_list(args.image_directory, num_pairs=args.npairs, num_per_pair=args.num_per_pair)
     logging.info("Created a list of image pairs.".format(image_pairs))
     table_of_planted_sources = build_table_of_planted_sources(args.plant_list_directory)
     logging.info("Read in {} artificial sources.".format(len(table_of_planted_sources)))
