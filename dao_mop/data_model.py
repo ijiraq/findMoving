@@ -3,6 +3,7 @@ import glob
 import logging
 import os
 import re
+import sqlite3
 from itertools import combinations
 
 import numpy
@@ -10,13 +11,88 @@ from astropy import units
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata.utils import Cutout2D, PartialOverlapError
-from astropy.table import Table, vstack
+from astropy.table import Table
 from astropy.visualization import ImageNormalize, ZScaleInterval
 from astropy.wcs import wcs
 from matplotlib import pyplot
 
 PIX_CUTOUT_SIZE = 64
 VISIT_IN_PLANT_LIST_FILENAME_RE = re.compile(r'0([0-9]{6})')
+PLANT_LIST_COLUMNS = ['index', 'ra', 'dec', 'x', 'y', 'rate', 'angle', 'rate_ra', 'rate_dec', 'mag', 'psf_amp']
+PLANT_LIST_UNITS = {'index': None,
+                    'ra': units.degree,
+                    'dec': units.degree,
+                    'x': units.pix,
+                    'y': units.pix,
+                    'rate': units.arcsecond / units.hour,
+                    'angle': units.degree,
+                    'rate_ra': units.arcsecond / units.hour,
+                    'rate_dec': units.arcsecond / units.hour,
+                    'mag': units.mag,
+                    'psf_amp': units.adu}
+PLANT_LIST_db = {'visit': 'INTEGER',
+                 'index': 'INTEGER',
+                 'ra': 'REAL',
+                 'dec': 'REAL',
+                 'x': 'REAL',
+                 'y': 'REAL',
+                 'rate': 'REAL',
+                 'angle': 'REAL',
+                 'rate_ra': 'REAL',
+                 'rate_dec': 'REAL',
+                 'mag': 'REAL',
+                 'psf_amp': 'REAL'
+                 }
+
+
+def insert_plant_list_into_database(this_table, plant_list_db='plant_list.db'):
+    """
+
+    :param this_table: the plantList format astropy.table.Table to load into the SQL DB.
+    :param plant_list_db: the sqlite3 database to load them into.
+    :return: None
+    """
+    # Compare the first line of the file I've been given to be sure it matches what is expected.
+    if not os.access(plant_list_db, os.R_OK):
+            init_db(plant_list_db)
+    cast={'REAL': float, 'INTEGER': int }
+    with sqlite3.connect(plant_list_db) as db:
+        visit = this_table['visit'][0]
+        cursor = db.cursor()
+        # Check if we've already added this visit
+        cursor.execute(f'SELECT count(*) FROM fakes WHERE visit={visit}')
+        row = cursor.fetchone()
+        if row[0] > 0:
+            logging.warning(f'Already ingested {visit} in to {plant_list_db}')
+
+        sql = 'REPLACE INTO fakes(' + ",".join([f'`{name}`' for name in this_table.colnames]) + ')'
+        sql += ' VALUES(' + ','.join(['?']*len(this_table.colnames)) + ')'
+        logging.debug(f'INSERTING using:\n{sql}')
+        for row in this_table:
+            values = [cast[PLANT_LIST_db[name]](row[name]) for name in this_table.colnames]
+            logging.debug(f'values:\n{values}')
+            db.execute(sql, values)
+        db.commit()
+    return
+
+
+def get_visit_plant_list(visit, plant_list_db):
+    """
+    Retrieve all the sources associated with the given visit into a astropy.table.Table
+
+    :param plant_list_db: sqlite3 database (likely created with init_db method in this module)
+    :return: Table of planted sources in plantList format.
+    """
+    with sqlite3.connect(plant_list_db) as db:
+        cursor = db.cursor()
+        sql = f'SELECT * FROM `fakes` WHERE `visit`={visit}'
+        result = numpy.array(cursor.execute(sql).fetchall())
+        colnames = [x[0] for x in cursor.description]
+    # logging.debug(f'Loaded columns: {colnames}')
+    # logging.debug(f'Table shape: {result.shape}')
+    this_table = Table(data=result, names=colnames)
+    this_table['skycoord'] = SkyCoord(this_table['ra'], this_table['dec'], unit=('degree', 'degree'))
+    return this_table
 
 
 def load_plantlist(filename):
@@ -29,7 +105,6 @@ def load_plantlist(filename):
     :return: table of values
     :rtype Table
     """
-    # Compare the first line of the file I've been given to be sure it matches what is expected.
     logging.debug(f'Loading plantList from {filename}')
     plantlist_first_line = '#index ra dec x y rate ("/hr) angle (deg) rate_ra rate_dec mag psf_amp'
     first_line_in_file = open(filename, 'r').readline().strip()
@@ -37,24 +112,13 @@ def load_plantlist(filename):
         'expected:{}\ngot:{}\n is not a plantList formatted file.'.format(plantlist_first_line,
                                                                           first_line_in_file,
                                                                           filename)
-
-    column_names = ['index', 'ra', 'dec', 'x', 'y', 'rate', 'angle', 'rate_ra', 'rate_dec',
-                    'mag', 'psf_amp']
-    column_units = {'index': None,
-                    'ra': units.degree,
-                    'dec': units.degree,
-                    'x': None,
-                    'y': None,
-                    'rate': units.arcsecond / units.hour,
-                    'rate_ra': units.arcsecond / units.hour,
-                    'rate_dec': units.arcsecond / units.hour,
-                    'mag': None,
-                    'psf_amp': None}
-
+    column_names = PLANT_LIST_COLUMNS
+    column_units = PLANT_LIST_UNITS
     match = VISIT_IN_PLANT_LIST_FILENAME_RE.search(filename)
+
     if match is None:
         raise ValueError(f'Filename {filename} does not match expected pattern.')
-    visit = match.group(1)
+    visit = int(match.group(1))
 
     this_table = Table.read(filename, names=column_names, format='ascii')
     for name in column_units:
@@ -104,7 +168,7 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
             if shape is None:
                 shape = images[visit].shape
             assert shape == images[visit].shape, "All images must be the same dimension and registered."
-            plant_list = full_plant_list[full_plant_list['visit'] == visit]
+            plant_list = get_visit_plant_list(visit, full_plant_list)
             logging.info("{} sources planted into visit {}".format(len(plant_list), visit))
 
         # Make a list of X/Y coordinates to for the centres of cutouts to make
@@ -131,7 +195,7 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
                 use_this_cutout = False
                 for visit in images:
                     image = images[visit]
-                    plant_list = full_plant_list[full_plant_list['visit'] == visit]
+                    plant_list = get_visit_plant_list(visit, full_plant_list)
                     image_wcs = wcs.WCS(image.header)
                     image_cutout = Cutout2D(image.data, p, size, wcs=image_wcs, mode='strict')
                     image_cutout.data = numpy.nan_to_num(image_cutout.data, nan=-100)
@@ -216,7 +280,7 @@ def build_image_pair_list(image_directory, num_pairs=None, random=False, fractio
     return image_pairs
 
 
-def build_table_of_planted_sources(plant_list_directory, pattern='*.plantList'):
+def build_table_of_planted_sources(plant_list_directory, pattern='*.plantList', plant_list_db=None, reload=False):
     """
     Build a table containing all the sources in .plantList files in the given directory.
 
@@ -227,25 +291,23 @@ def build_table_of_planted_sources(plant_list_directory, pattern='*.plantList'):
     :return: Table of sources from all the plantList files in plant_list_directory whose filenames match pattern
     :rtype Table
     """
+    if plant_list_db is None:
+        plant_list_db = os.path.join(plant_list_directory, 'plant_list.db')
+    if os.access(plant_list_db, os.R_OK) and not reload:
+        return plant_list_db
 
     plant_filename_list = glob.glob(os.path.join(plant_list_directory, pattern))
-    table_of_planted_sources = None
     for plant_filename in plant_filename_list:
         try:
             this_table = load_plantlist(plant_filename)
-            if table_of_planted_sources is None:
-                table_of_planted_sources = this_table
-            else:
-                table_of_planted_sources = vstack((table_of_planted_sources, this_table))
+            insert_plant_list_into_database(this_table,
+                                            plant_list_db=plant_list_db)
         except Exception as ex:
             logging.error(str(ex))
             logging.warning("Skipping {}".format(plant_filename))
 
     # create a skycoord column, for later use.
-    table_of_planted_sources['skycoord'] = SkyCoord(table_of_planted_sources['ra'],
-                                                    table_of_planted_sources['dec'])
-
-    return table_of_planted_sources
+    return plant_list_db
 
 
 def plot(source_cutout, source_cutout_target):
@@ -284,6 +346,8 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--image-directory', default='./',
                         help='name of directory containing images to draw sections from.')
+    parser.add_argument('--reload-plant-list', action='store_true',
+                        help="Rebuild the plant_list database if it exists?")
     parser.add_argument('--plant-list-directory', default='./',
                         help='name of directory where plantList files can be found.')
     parser.add_argument('--nsamples', type=int,
@@ -313,8 +377,8 @@ def main():
     # Get the list of pairs of images in image_dir
     image_pairs = build_image_pair_list(args.image_directory, num_pairs=args.npairs, num_per_pair=args.num_per_pair)
     logging.info("Created a list of image pairs.".format(image_pairs))
-    table_of_planted_sources = build_table_of_planted_sources(args.plant_list_directory)
-    logging.info("Read in {} artificial sources.".format(len(table_of_planted_sources)))
+    plant_list_db = build_table_of_planted_sources(args.plant_list_directory, reload=args.reload_plant_list)
+    # logging.info("Read in {} artificial sources.".format(len(table_of_planted_sources)))
     logging.info("Extracting {} cutouts of size {}X{} from those image pairs".format(args.nsamples,
                                                                                      args.dimension,
                                                                                      args.dimension))
@@ -323,7 +387,7 @@ def main():
     else:
         logging.info('Grid will be regularized')
 
-    source_cutouts, source_targets, blank_cutouts = cut(image_pairs, table_of_planted_sources,
+    source_cutouts, source_targets, blank_cutouts = cut(image_pairs, plant_list_db,
                                                         size=args.dimension,
                                                         random=args.random,
                                                         num_samples=args.nsamples)
@@ -347,6 +411,28 @@ def main():
         # Plot cutout images of the 15 brightest sources.
         for i in range(min(len(brightest_targets), args.num_to_plot)):
             plot(source_cutouts[brightest_targets[i]], source_targets[brightest_targets[i]])
+
+
+def init_db(dbfilename):
+    """
+    Create an SQLite database to add plantList files into.
+
+    :param dbfilename:
+    :return:
+    """
+    try:
+        conn = sqlite3.connect(dbfilename)
+        c = conn.cursor()
+        # Create table, append to the list of columns in plantList a visit column.
+        column_defs = ",".join([f'`{col}` {PLANT_LIST_db[col]}' for col in PLANT_LIST_db])
+        sql = f'CREATE TABLE IF NOT EXISTS `fakes`({column_defs}, UNIQUE(`visit`,`index`))'
+        logging.debug(f'Creating sql TABLE with: \n{sql}')
+        c.execute(sql)
+        conn.commit()
+        conn.close()
+    except Exception as ex:
+        logging.error(str(ex))
+        raise ex
 
 
 if __name__ == '__main__':
