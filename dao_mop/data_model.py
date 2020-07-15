@@ -15,6 +15,7 @@ from astropy.table import Table
 from astropy.visualization import ImageNormalize, ZScaleInterval
 from astropy.wcs import wcs
 import matplotlib
+
 matplotlib.use('Agg')
 from matplotlib import pyplot
 
@@ -56,8 +57,8 @@ def insert_plant_list_into_database(this_table, plant_list_db='plant_list.db'):
     """
     # Compare the first line of the file I've been given to be sure it matches what is expected.
     if not os.access(plant_list_db, os.R_OK):
-            init_db(plant_list_db)
-    cast={'REAL': float, 'INTEGER': int }
+        init_db(plant_list_db)
+    cast = {'REAL': float, 'INTEGER': int}
     with sqlite3.connect(plant_list_db) as db:
         visit = this_table['visit'][0]
         cursor = db.cursor()
@@ -68,7 +69,7 @@ def insert_plant_list_into_database(this_table, plant_list_db='plant_list.db'):
             logging.warning(f'Already ingested {visit} in to {plant_list_db}')
 
         sql = 'REPLACE INTO fakes(' + ",".join([f'`{name}`' for name in this_table.colnames]) + ')'
-        sql += ' VALUES(' + ','.join(['?']*len(this_table.colnames)) + ')'
+        sql += ' VALUES(' + ','.join(['?'] * len(this_table.colnames)) + ')'
         logging.debug(f'INSERTING using:\n{sql}')
         for row in this_table:
             values = [cast[PLANT_LIST_db[name]](row[name]) for name in this_table.colnames]
@@ -166,7 +167,7 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
 
         # open the two FITS images that are the pair.
         shape = None
-        skip_pair=False
+        skip_pair = False
         for filename in pair:
             visit = re.search(r'([0-9]{6})', filename).group(1)
             plant_list = get_visit_plant_list(visit, full_plant_list, plant_mag_limit)
@@ -263,9 +264,11 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
     return source_cutouts, source_cutout_targets, blank_cutouts
 
 
-def build_image_pair_list(image_directory, num_pairs=None, random=False, fraction=1.0, num_per_pair=2):
+def build_image_pair_list(image_directory, num_pairs=None, random=False, fraction=1.0, num_per_pair=2,
+                          pattern='warp*.fits'):
     """
     Build a list of images to make cutouts from and return list of pairs of images.
+    :param pattern: Only files matching this patter will be added to the image list.
     :param image_directory:
     :param num_pairs: How many image pairs to build? None ==> All possible.
     :param num_per_pair: How many images in a 'pair' (normally 2)
@@ -273,7 +276,7 @@ def build_image_pair_list(image_directory, num_pairs=None, random=False, fractio
     :param fraction: if random, what fraction of a complete sample should be provided (there will be repeats)?
     :return: list of image pairs
     """
-    image_filename_list = numpy.array(glob.glob(os.path.join(image_directory, '?,?', '*.fits')))
+    image_filename_list = numpy.array(glob.glob(os.path.join(image_directory, pattern)))
     logging.debug(f'Got list {image_filename_list} of file in directory {image_directory}')
     if random:
         # Make the pairs via random sampling
