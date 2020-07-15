@@ -14,6 +14,8 @@ from astropy.nddata.utils import Cutout2D, PartialOverlapError
 from astropy.table import Table
 from astropy.visualization import ImageNormalize, ZScaleInterval
 from astropy.wcs import wcs
+import matplotlib
+matplotlib.use('Agg')
 from matplotlib import pyplot
 
 PIX_CUTOUT_SIZE = 64
@@ -164,15 +166,20 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
 
         # open the two FITS images that are the pair.
         shape = None
+        skip_pair=False
         for filename in pair:
             visit = re.search(r'([0-9]{6})', filename).group(1)
+            plant_list = get_visit_plant_list(visit, full_plant_list, plant_mag_limit)
+            if not len(plant_list) > 0:
+                skip_pair = True
+                break
             images[visit] = fits.open(filename)[extno]
             if shape is None:
                 shape = images[visit].shape
             assert shape == images[visit].shape, "All images must be the same dimension and registered."
-            plant_list = get_visit_plant_list(visit, full_plant_list, plant_mag_limit)
             logging.info("{} sources planted into visit {}".format(len(plant_list), visit))
-
+        if skip_pair:
+            break
         # Make a list of X/Y coordinates to for the centres of cutouts to make
         # from the images in this pair.
         visit = list(images.keys())[0]
@@ -266,7 +273,7 @@ def build_image_pair_list(image_directory, num_pairs=None, random=False, fractio
     :param fraction: if random, what fraction of a complete sample should be provided (there will be repeats)?
     :return: list of image pairs
     """
-    image_filename_list = numpy.array(glob.glob(os.path.join(image_directory, '*.fits')))
+    image_filename_list = numpy.array(glob.glob(os.path.join(image_directory, '?,?', '*.fits')))
     logging.debug(f'Got list {image_filename_list} of file in directory {image_directory}')
     if random:
         # Make the pairs via random sampling
