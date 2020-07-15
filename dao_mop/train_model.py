@@ -71,6 +71,7 @@ def plot_training_outcome(history, output_file_base=None):
 
 
 def load_training_and_validation_sets(image_dir="./data",
+                                      pattern='warp*.fits',
                                       planted_list_dir="./data",
                                       test_fraction=0.3,
                                       size=CUTOUT_DIMENSION,
@@ -83,6 +84,7 @@ def load_training_and_validation_sets(image_dir="./data",
     Loads from disk the image cutout sections (some with moving sources, some without) and returns as
     two groups of inputs shaped for the CNN model we will use.
 
+    :param pattern:
     :param plant_mag_limit:
     :type num_per_pair: int
     :param image_dir: directory containing image patches that will be loaded from disk
@@ -99,7 +101,7 @@ def load_training_and_validation_sets(image_dir="./data",
 
     # Load the image data from disk
     image_pairs = data_model.build_image_pair_list(image_directory=image_dir, num_pairs=num_pairs,
-                                                   num_per_pair=num_per_pair)
+                                                   num_per_pair=num_per_pair, pattern=pattern)
     table_of_planted_sources = data_model.build_table_of_planted_sources(plant_list_directory=planted_list_dir)
     source_cutouts, source_targets, blank_cutouts = data_model.cut(image_pairs,
                                                                    table_of_planted_sources,
@@ -282,6 +284,7 @@ def main(model_filename="trained_model.ker"):
     parser.add_argument('--epochs', help='How many training epochs to run?', default=50, type=int)
     parser.add_argument('plant_list_dir', help='Directory containing lists of planted sources in plantList format')
     parser.add_argument('image_dir', help='Directory containing images used to train the model.')
+    parser.add_argument('file-pattern', help='Image files that match pattern will be used.', default='4,4/warp*.fits')
     parser.add_argument('--test-fraction', help='Fraction of the model used to validate with.', default=0.3,
                         type=float)
     parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
@@ -298,6 +301,7 @@ def main(model_filename="trained_model.ker"):
         load_training_and_validation_sets(num_samples=args.num_samples,
                                           num_pairs=args.num_pairs,
                                           image_dir=args.image_dir,
+                                          pattern=args.file_pattern,
                                           random=args.random,
                                           test_fraction=args.test_fraction,
                                           planted_list_dir=args.plant_list_dir,
