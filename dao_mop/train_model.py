@@ -26,6 +26,8 @@ from keras.layers import Input
 from keras.layers.convolutional import Conv2D
 from keras.layers.pooling import MaxPooling2D
 from keras.models import Model
+import  matplotlib 
+matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from sklearn import model_selection as md
 from . import data_model
