@@ -141,23 +141,24 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
     logging.debug(f'Chunk grid: y {y_section_grid}')
     x_section_grid = np.arange(0, reference_hdu[1].data.shape[1], section_size)
     logging.debug(f'Chunk grid: y {x_section_grid}')
-    output_array = np.zeros(reference_hdu[1].data.shape)
+    image_array = np.zeros(reference_hdu[1].data.shape)
+    variance_array = np.zeros(reference_hdu[1].data.shape)
     padding = 100
     for yo in y_section_grid:
-        # yo,yp are the bounds were data will be inserted into output_array
+        # yo,yp are the bounds were data will be inserted into image_array
         # but we need y1,y2 range of data to come from input to allow for 
         # shifting of pixel boundaries.
         yo = int(yo)
         y1 = int(max(0, yo-padding))
-        yp = int(min(output_array.shape[0], yo+section_size))
-        y2 = int(min(output_array.shape[0], yp+padding))
+        yp = int(min(image_array.shape[0], yo+section_size))
+        y2 = int(min(image_array.shape[0], yp+padding))
         yl = yo - y1
         yu = yl + yp - yo 
         for xo in x_section_grid:
             xo = int(xo)
             x1 = int(max(0, xo-padding))
-            xp = int(min(output_array.shape[1], xo+section_size))
-            x2 = int(min(output_array.shape[1], xp+padding))
+            xp = int(min(image_array.shape[1], xo+section_size))
+            x2 = int(min(image_array.shape[1], xp+padding))
             xl = xo - x1
             xu = xl + xp - xo
             logging.debug(f'Taking section {y1,y2,x1,x2} shifting, '
@@ -223,10 +224,12 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
             stacked_data = stacking_mode(np.array(outs), overwrite_input=True, axis=0)/stacked_variance
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
-            output_array[yo:yp, xo:xp] = downSample2d(stacked_data, rf)[yl:yu, xl:xu]
-    logging.debug(f'Down sampled image has shape {output_array.shape}')
+            image_array[yo:yp, xo:xp] = downSample2d(stacked_data, rf)[yl:yu, xl:xu]
+            variance_array[yo:yp, xo:xp] = downSample2d(stacked_variance, rf)[yl:yu, xl:xu]
+    logging.debug(f'Down sampled image has shape {image_array.shape}')
     return fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
-                         fits.ImageHDU(data=output_array, header=reference_hdu[1].header)])
+                         fits.ImageHDU(data=image_array, header=reference_hdu[1].header),
+                         fits.ImageHDU(data=variance_array, header=reference_hdu[3].header)])
 
 
 def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
@@ -382,6 +385,10 @@ def main():
             # Keep a history of which visits when into the stack.
             for i_index, image_name in enumerate(sub_images[index]):
                 output[0].header[f'input{i_index:03d}'] = image_name
+            output[0].header['rate'] = rate['rate']
+            output[0].header['angle'] = rate['angle']
+            output[0].header['dra'] = dra
+            output[0].header['ddec'] = ddec
             output_filename = f'{reference_filename}-{index:02d}-{rate["rate"]:+05.2f}-{rate["angle"]:+05.2f}.fits'
             output.writeto(os.path.join(output_dir, output_filename))
 
