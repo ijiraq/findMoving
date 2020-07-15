@@ -1,13 +1,13 @@
 from setuptools import setup, find_packages
 setup(
-    name="dao_mop",
+    name="daomop",
     version="0.1",
     packages=find_packages(),
     entry_points={
         "console_scripts": [
-            "dao_mop_sns = dao_mop.sns:main",
-            "dao_mop_train_cnn = dao_mop.train_model:main",
-            "dao_mop_build_plant_db = dao_mop.build_plant_list_db:main",
+            "daomop-sns = daomop.sns:main",
+            "daomop-train_cnn = daomop.train_model:main",
+            "daomop-build_plant_db = daomop.build_plant_list_db:main",
         ],
     }
 )

@@ -5,7 +5,6 @@ import os
 import re
 import sqlite3
 from itertools import combinations
-
 import numpy
 from astropy import units
 from astropy.coordinates import SkyCoord
@@ -161,7 +160,7 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
     source_cutout_targets = []
 
     for pair in pairs:
-
+        logging.info("SKKKK")
         logging.info("Creating {} cutouts for image pair {}".format(num_samples, pair))
         images = {}
 
@@ -169,8 +168,15 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
         shape = None
         skip_pair = False
         for filename in pair:
-            visit = re.search(r'([0-9]{6})', filename).group(1)
+            logging.debug(f'Looking up fakes for {filename}')
+            try:
+                visit = re.search(r'([0-9]{6})', filename).group(1)
+            except Exception as ex:
+                logging.error(f'could not get visit value from filename {filename}')
+                raise ex
+            logging.debug(f'Getting fakes for visit {visit}')
             plant_list = get_visit_plant_list(visit, full_plant_list, plant_mag_limit)
+            logging.info(f'{len(plant_list)} fakes in visit {visit}')
             if not len(plant_list) > 0:
                 skip_pair = True
                 break
@@ -178,9 +184,8 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
             if shape is None:
                 shape = images[visit].shape
             assert shape == images[visit].shape, "All images must be the same dimension and registered."
-            logging.info("{} sources planted into visit {}".format(len(plant_list), visit))
         if skip_pair:
-            break
+            continue
         # Make a list of X/Y coordinates to for the centres of cutouts to make
         # from the images in this pair.
         visit = list(images.keys())[0]
@@ -379,12 +384,7 @@ def main():
     args = parser.parse_args()
 
     # Set the logging level.
-    level = logging.ERROR
-    if args.verbose:
-        level = logging.INFO
-    if args.debug:
-        level = logging.DEBUG
-    logging.basicConfig(level=level)
+    logging.basicConfig(level=getattr(logging, args.log_level, logging.DEBUG))
 
     # Get the list of pairs of images in image_dir
     image_pairs = build_image_pair_list(args.image_directory, num_pairs=args.npairs, num_per_pair=args.num_per_pair)

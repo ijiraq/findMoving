@@ -284,7 +284,7 @@ def main(model_filename="trained_model.ker"):
     parser.add_argument('--epochs', help='How many training epochs to run?', default=50, type=int)
     parser.add_argument('plant_list_dir', help='Directory containing lists of planted sources in plantList format')
     parser.add_argument('image_dir', help='Directory containing images used to train the model.')
-    parser.add_argument('file-pattern', help='Image files that match pattern will be used.', default='4,4/warp*.fits')
+    parser.add_argument('--file-pattern', help='Image files that match pattern will be used.', default='4,4/warp*.fits')
     parser.add_argument('--test-fraction', help='Fraction of the model used to validate with.', default=0.3,
                         type=float)
     parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
