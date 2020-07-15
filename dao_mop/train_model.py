@@ -1,5 +1,5 @@
 """
-Train up a CNN using the Keras API to TensorFlow. Also makes use of sklearn to build the test / validation set.
+Train up a CNN using the Keras API to TensorFlow. Also makes use of scikit-learn to build the test / validation set.
 
 Keras is TensorFlow's API for building and training deep learning models.
 It's used for fast prototyping, state-of-the-art research, and production.
@@ -18,7 +18,11 @@ import argparse
 import logging
 import sys
 import numpy as np
-import keras
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
+from . import data_model
+from keras import backend
 from keras.layers import BatchNormalization
 from keras.layers import Dense, Dropout
 from keras.layers import Flatten
@@ -26,11 +30,7 @@ from keras.layers import Input
 from keras.layers.convolutional import Conv2D
 from keras.layers.pooling import MaxPooling2D
 from keras.models import Model
-import  matplotlib 
-matplotlib.use('Agg')
-from matplotlib import pyplot as plt
-from sklearn import model_selection as md
-from . import data_model
+from keras.callbacks import Callback
 
 CUTOUT_DIMENSION = 64
 NUM_CHANNELS = 2
@@ -70,45 +70,6 @@ def plot_training_outcome(history, output_file_base=None):
         plt.savefig("{}_loss.pdf".format(output_file_base))
 
 
-class TrainingPlot(keras.callbacks.Callback):
-
-    def __init__(self):
-        self.losses = []
-        self.acc = []
-        self.val_losses = []
-        self.val_acc = []
-        self.logs = []
-        self.x = []
-        self.i = 1
-        super().__init__()
-
-    # This function is called when the training begins
-    def on_train_begin(self, logs=None):
-        # Initialize the lists for holding the logs, losses and accuracies
-        self.losses = []
-        self.acc = []
-        self.val_losses = []
-        self.val_acc = []
-        self.logs = []
-        self.x = []
-        self.i = 1
-
-    def on_epoch_end(self, epoch, logs=None):
-        self.logs.append(logs)
-        self.x.append(self.i)
-        self.acc.append(logs.get('accuracy'))
-        self.losses.append(logs.get('losses'))
-        self.val_acc.append(logs.get('val_accuracy'))
-        self.val_losses.append(logs.get('val_losses'))
-        self.i += 1
-        # If running in debug mode pop up a plot at each step
-        if logging.getLogger().getEffectiveLevel() <= logging.DEBUG:
-            plt.plot(self.x, self.acc, label="training", linestyle='-')
-            plt.plot(self.x, self.val_acc, label="validation", linestyle='--')
-            plt.legend()
-            plt.show()
-
-
 def load_training_and_validation_sets(image_dir="./data",
                                       planted_list_dir="./data",
                                       test_fraction=0.3,
@@ -122,6 +83,7 @@ def load_training_and_validation_sets(image_dir="./data",
     Loads from disk the image cutout sections (some with moving sources, some without) and returns as
     two groups of inputs shaped for the CNN model we will use.
 
+    :param plant_mag_limit:
     :type num_per_pair: int
     :param image_dir: directory containing image patches that will be loaded from disk
     :param planted_list_dir: directory containing files with lists of planted sources.
@@ -133,6 +95,7 @@ def load_training_and_validation_sets(image_dir="./data",
     :return: list of training and validation arrays.
     :rtype: np.array, np.array, nd.array, nd.array
     """
+    from sklearn import model_selection as md
 
     # Load the image data from disk
     image_pairs = data_model.build_image_pair_list(image_directory=image_dir, num_pairs=num_pairs,
@@ -177,7 +140,7 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
 
     # Tensorflow keep the channels AFTER the rows and columns.
     # We need to change it to channels first.
-    keras.backend.set_image_data_format('channels_first')
+    backend.set_image_data_format('channels_first')
 
     # input layer
     # The shape is (2,128,128). The first '2' means the number of channels.The second and the
@@ -262,6 +225,43 @@ def train_and_validate_the_model(model, training_data, training_classes, validat
     # This data is not used for training the model.
     # shuffle = keras shuffles training inputs in batch-sized chunks.
     # callbacks = a function that is called at the end of each epoch.
+    class TrainingPlot(Callback):
+
+        def __init__(self):
+            self.losses = []
+            self.acc = []
+            self.val_losses = []
+            self.val_acc = []
+            self.logs = []
+            self.x = []
+            self.i = 1
+            super().__init__()
+
+        # This function is called when the training begins
+        def on_train_begin(self, logs=None):
+            # Initialize the lists for holding the logs, losses and accuracies
+            self.losses = []
+            self.acc = []
+            self.val_losses = []
+            self.val_acc = []
+            self.logs = []
+            self.x = []
+            self.i = 1
+
+        def on_epoch_end(self, epoch, logs=None):
+            self.logs.append(logs)
+            self.x.append(self.i)
+            self.acc.append(logs.get('accuracy'))
+            self.losses.append(logs.get('losses'))
+            self.val_acc.append(logs.get('val_accuracy'))
+            self.val_losses.append(logs.get('val_losses'))
+            self.i += 1
+            # If running in debug mode pop up a plot at each step
+            if logging.getLogger().getEffectiveLevel() <= logging.DEBUG:
+                plt.plot(self.x, self.acc, label="training", linestyle='-')
+                plt.plot(self.x, self.val_acc, label="validation", linestyle='--')
+                plt.legend()
+                plt.show()
 
     history = model.fit(training_data, training_classes,
                         validation_data=[validation_data, validation_classes],
