@@ -44,6 +44,33 @@ STACK_MASK = (2**LSST_MASK_BITS['EDGE'], 2**LSST_MASK_BITS['NO_DATA'], 2**LSST_M
               2**LSST_MASK_BITS['SAT'], 2**LSST_MASK_BITS['INTRP'])
 
 
+def weighted_quantile(values, quantile, sample_weight):
+    """ Very close to numpy.percentile, but supports weights.  Always overwrite=True, works on arrays with nans.
+
+    # THIS IS NOT ACTUALLY THE PERCENTILE< BUT CLOSE ENOUGH...<
+
+    this was taken from a stackoverflow post:
+    https://stackoverflow.com/questions/21844024/weighted-percentile-using-numpy
+
+    NOTE: quantiles should be in [0, 1]!
+
+    :param values: numpy.array with data
+    :param quantile: array-like with many quantiles needed
+    :param sample_weight: array-like of the same length as `array`
+    :return: numpy.array with computed quantiles.
+    """
+    sorter = np.argsort(values, axis=0)
+    values = numpy.take_along_axis(values, sorter, axis=0)
+    sample_weight = numpy.take_along_axis(sample_weight, sorter, axis=0)
+    weighted_quantiles = np.cumsum(sample_weight, axis=0) - 0.5 * sample_weight
+    weighted_quantiles /= np.sum(sample_weight, axis=0)
+    ind = np.argmin(weighted_quantiles <= quantile, axis=0)
+    return np.take_along_axis(values, np.expand_dims(ind, axis=0), axis=0)[0]
+
+
+STACKING_MODES['WEIGHTED'] = weighted_quantile
+
+
 def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
     """
     set the mask on 'data' to include bits in mask that are set to STACK_MASK
@@ -116,7 +143,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
         return stack_input
 
 
-def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=1024):
+def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='WEIGHTED', section_size=1024):
     """
     Original pixel grid expansion shift+stack code from wes.
 
@@ -197,7 +224,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
                     hdu[1].data[y1:y2, x1:x2].shape, rep.shape))
                 variance = np.repeat(np.repeat(hdu[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf, axis=0),
                                      rf, axis=1)
-                rep /= variance
+                # rep /= variance
                 # dest_bounds are range of the index where the data should go into
                 # source_bounds are the range of the index where the data come from.
                 # this creates a shift in the data, using index bounds.
@@ -221,7 +248,10 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='MEAN', section_size=10
             logging.debug(f'Stacking {len(outs)} images of shape {outs[0].shape}')
             logging.debug(f'Combining shifted pixels')
             stacked_variance = STACKING_MODES['MEAN'](np.array(variances), axis=0)
-            stacked_data = stacking_mode(np.array(outs), overwrite_input=True, axis=0)/stacked_variance
+            if stacking_mode == weighted_quantile:
+                stacked_data = stacking_mode(np.array(outs), 0.5, np.array(1./variances))
+            else:
+                stacked_data = stacking_mode(np.array(outs), overwrite_input=True, axis=0)
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
             image_array[yo:yp, xo:xp] = downSample2d(stacked_data, rf)[yl:yu, xl:xu]
@@ -266,7 +296,8 @@ def main():
     parser.add_argument('--ccd', help="Which CCD to stack?", type=int, default=0)
     parser.add_argument('--exptype', help="What type of exposures to co-add?", default='deepDiff')
     parser.add_argument('--swarp', action='store_true', help="Use projection to do shifts, default is pixel shifts.")
-    parser.add_argument('--stack-mode', choices=['MEAN', 'MEDIAN'], default='MEDIAN', help="How to combine images.")
+    parser.add_argument('--stack-mode', choices=STACKING_MODES.keys(),
+                        default='WEIGHTED', help="How to combine images.")
     parser.add_argument('--rectify', action='store_true', help="Rectify images to WCS of reference, otherwise "
                                                                "images must be on same grid before loading.")
     parser.add_argument('--log-level', help="What level to log at? (ERROR, INFO, DEBUG)", default="ERROR",
