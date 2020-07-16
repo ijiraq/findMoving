@@ -415,7 +415,7 @@ def main():
             logging.debug(f'Got stack result {output}')
             # Keep a history of which visits when into the stack.
             for i_index, image_name in enumerate(sub_images[index]):
-                output[0].header[f'input{i_index:03d}'] = image_name
+                output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
             output[0].header['rate'] = (rate['rate'], 'arcsecond/hour')
             output[0].header['angle'] = (rate['angle'], 'degree')
             output[0].header['dra'] = (dra.value, str(dra.unit))
