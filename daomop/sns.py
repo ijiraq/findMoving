@@ -68,7 +68,7 @@ def weighted_quantile(values, quantile, sample_weight):
     return np.take_along_axis(values, np.expand_dims(ind, axis=0), axis=0)[0]
 
 
-STACKING_MODES['WEIGHTED'] = weighted_quantile
+STACKING_MODES['WEIGHTED_MEDIAN'] = weighted_quantile
 
 
 def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
@@ -103,6 +103,9 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
     :return: fits.HDUList
     """
     # Project the input images to the same grid using interpolation
+    if stacking_mode not in ['MEDIAN', 'MEAN']:
+        logging.warning(f'{stacking_mode} not available for swarp stack. Setting to MEAN')
+        stacking_mode = 'MEAN'
     if hdu_idx is None:
         hdu_idx = HSC_HDU_MAP
     reference_date = mid_exposure_mjd(reference_hdu[0])
@@ -143,7 +146,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
         return stack_input
 
 
-def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='WEIGHTED', section_size=1024):
+def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024):
     """
     Original pixel grid expansion shift+stack code from wes.
 
@@ -151,6 +154,8 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='WEIGHTED', section_siz
     :return: combined data after shifting at dx/dy and combined using stacking_mode.
     """
     from trippy.trippy_utils import downSample2d
+    if stacking_mode is None:
+        stacking_mode = 'SUM'
     logging.info('Combining images using {stacking_mode}')
     stacking_mode = STACKING_MODES.get(stacking_mode, STACKING_MODES['DEFAULT'])
 
@@ -245,21 +250,27 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode='WEIGHTED', section_siz
                     variance[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
                 outs.append(rep)
                 variances.append(variance)
+            variances = np.array(variances)
+            outs = np.array(outs)
             logging.debug(f'Stacking {len(outs)} images of shape {outs[0].shape}')
             logging.debug(f'Combining shifted pixels')
-            stacked_variance = STACKING_MODES['MEAN'](np.array(variances), axis=0)
             if stacking_mode == weighted_quantile:
-                stacked_data = stacking_mode(np.array(outs), 0.5, np.array(1./variances))
+                stacked_data = stacking_mode(outs, 0.50001, 1./variances)
             else:
-                stacked_data = stacking_mode(np.array(outs), overwrite_input=True, axis=0)
+                stacked_data = stacking_mode(outs, overwrite_input=True, axis=0)
+            logging.debug(f'Setting variance to mean variance / N frames')
+            stacked_variance = STACKING_MODES['MEAN'](variances, axis=0)/len(variances)
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
             image_array[yo:yp, xo:xp] = downSample2d(stacked_data, rf)[yl:yu, xl:xu]
             variance_array[yo:yp, xo:xp] = downSample2d(stacked_variance, rf)[yl:yu, xl:xu]
     logging.debug(f'Down sampled image has shape {image_array.shape}')
-    return fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
+    hduout= fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
                          fits.ImageHDU(data=image_array, header=reference_hdu[1].header),
                          fits.ImageHDU(data=variance_array, header=reference_hdu[3].header)])
+    hduout[1].header['EXTNAME']='STACK'
+    hduout[2].header['EXTNAME']='VARIANCE'
+    return hduout
 
 
 def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
@@ -414,12 +425,14 @@ def main():
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
             logging.debug(f'Got stack result {output}')
             # Keep a history of which visits when into the stack.
+            output[0].header['NCOMB'] = (len(sub_images), 'Number combined')
+            output[0].header['COMBALGO'] = (args.stack_mode, 'Stacking mode')
+            output[0].header['RATE'] = (rate['rate'], 'arcsecond/hour')
+            output[0].header['ANGLE'] = (rate['angle'], 'degree')
+            output[0].header['DRA'] = (dra.value, str(dra.unit))
+            output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             for i_index, image_name in enumerate(sub_images[index]):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
-            output[0].header['rate'] = (rate['rate'], 'arcsecond/hour')
-            output[0].header['angle'] = (rate['angle'], 'degree')
-            output[0].header['dra'] = (dra.value, str(dra.unit))
-            output[0].header['ddec'] = (ddec.value, str(ddec.unit))
             output_filename = f'{reference_filename}-{index:02d}-{rate["rate"]:+05.2f}-{rate["angle"]:+05.2f}.fits'
             output.writeto(os.path.join(output_dir, output_filename))
 
