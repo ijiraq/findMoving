@@ -425,7 +425,7 @@ def main():
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
             logging.debug(f'Got stack result {output}')
             # Keep a history of which visits when into the stack.
-            output[0].header['NCOMB'] = (len(sub_images), 'Number combined')
+            output[0].header['NCOMB'] = (len(sub_stack), 'Number combined')
             output[0].header['COMBALGO'] = (args.stack_mode, 'Stacking mode')
             output[0].header['RATE'] = (rate['rate'], 'arcsecond/hour')
             output[0].header['ANGLE'] = (rate['angle'], 'degree')
@@ -433,7 +433,7 @@ def main():
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             for i_index, image_name in enumerate(sub_images[index]):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
-            output_filename = f'STACK_{reference_filename}-{index:02d}-{rate["rate"]:+05.2f}-{rate["angle"]:+05.2f}.fits'
+            output_filename = f'STACK-{reference_filename}-{index:02d}-{rate["rate"]:+05.2f}-{rate["angle"]:+05.2f}.fits'
             output.writeto(os.path.join(output_dir, output_filename))
 
     return 0
