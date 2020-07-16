@@ -416,10 +416,10 @@ def main():
             # Keep a history of which visits when into the stack.
             for i_index, image_name in enumerate(sub_images[index]):
                 output[0].header[f'input{i_index:03d}'] = image_name
-            output[0].header['rate'] = rate['rate']
-            output[0].header['angle'] = rate['angle']
-            output[0].header['dra'] = dra
-            output[0].header['ddec'] = ddec
+            output[0].header['rate'] = (rate['rate'], 'arcsecond/hour')
+            output[0].header['angle'] = (rate['angle'], 'degree')
+            output[0].header['dra'] = (dra.value, str(dra.unit))
+            output[0].header['ddec'] = (ddec.value, str(ddec.unit))
             output_filename = f'{reference_filename}-{index:02d}-{rate["rate"]:+05.2f}-{rate["angle"]:+05.2f}.fits'
             output.writeto(os.path.join(output_dir, output_filename))
 
