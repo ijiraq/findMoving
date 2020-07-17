@@ -1,16 +1,16 @@
 import argparse
-import math
 import glob
 import logging
+import math
 import os
+import sys
+
 import numpy as np
 from astropy import time, units
 from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
-import sys
-
 
 numpy = np
 
@@ -63,8 +63,10 @@ def weighted_quantile(values, quantile, sample_weight):
     sorter = np.argsort(values, axis=0)
     values = numpy.take_along_axis(values, sorter, axis=0)
     sample_weight = numpy.take_along_axis(sample_weight, sorter, axis=0)
-    weighted_quantiles = np.cumsum(sample_weight, axis=0) - 0.5 * sample_weight
-    weighted_quantiles /= np.sum(sample_weight, axis=0)
+    # check for inf weights, and remove
+    sample_weight[numpy.isinf(sample_weight)] = 0.0
+    weighted_quantiles = np.nancumsum(sample_weight, axis=0) - 0.5 * sample_weight
+    weighted_quantiles /= np.nansum(sample_weight, axis=0)
     ind = np.argmin(weighted_quantiles <= quantile, axis=0)
     return np.take_along_axis(values, np.expand_dims(ind, axis=0), axis=0)[0]
 
@@ -76,7 +78,7 @@ def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
     """
     set the mask on 'data' to include bits in mask that are set to STACK_MASK
     """
-    # Check if we've been sent a mask, incase called with NDData or masked array.
+    # Check if we've been sent a mask, in case called with NDData or masked array.
     # And save that as the initial mask.
     # this is currently pretty limited.
     init_mask = None
@@ -96,7 +98,7 @@ def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
 def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
     """
     use the WCS to project all image to the 'reference_hdu' shifting the the CRVAL of each image by rate*dt
-    :param stacking_mode: what process to use for combinnig images MEAN or MEDIAN
+    :param stacking_mode: what process to use for combining images MEAN or MEDIAN
     :param hdu_idx: which HDU in each HDUList listed in hdus is the ImageData in?
     :param hdus: list of HDUList
     :param reference_hdu: reference HDUList in hdus
@@ -210,7 +212,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                 logging.debug(f'Working on array {hdu[0]} of size '
                               f'{hdu[1].data.shape} and shifting by '
                               f'dx {dra} and dy {ddec}')
-                # Use the WCS to determine the x/y shit to allow for different imager orientations.
+                # Use the WCS to determine the x/y shit to allow for different ccd orientations.
                 sky_coord = wcs.wcs_pix2world((hdu[1].data.shape,), 0)
                 logging.debug(f'Corner of the FOV is {sky_coord}')
                 # Add offset needed to align the corner of the image with the reference image.
@@ -256,6 +258,8 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                 variances.append(variance)
             variances = np.array(variances)
             outs = np.array(outs)
+            # count up data where pixels were not 'nan'
+            num_frames = numpy.sum(~numpy.isnan(outs), axis=0)
             logging.debug(f'Stacking {len(outs)} images of shape {outs[0].shape}')
             logging.debug(f'Combining shifted pixels')
             if stacking_mode == weighted_quantile:
@@ -263,18 +267,18 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             else:
                 stacked_data = stacking_mode(outs, overwrite_input=True, axis=0)
             logging.debug(f'Setting variance to mean variance / N frames')
-            stacked_variance = STACKING_MODES['MEAN'](variances, axis=0)/len(variances)
+            stacked_variance = STACKING_MODES['MEAN'](variances, axis=0)/num_frames
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
             image_array[yo:yp, xo:xp] = downSample2d(stacked_data, rf)[yl:yu, xl:xu]
             variance_array[yo:yp, xo:xp] = downSample2d(stacked_variance, rf)[yl:yu, xl:xu]
     logging.debug(f'Down sampled image has shape {image_array.shape}')
-    hduout= fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
-                         fits.ImageHDU(data=image_array, header=reference_hdu[1].header),
-                         fits.ImageHDU(data=variance_array, header=reference_hdu[3].header)])
-    hduout[1].header['EXTNAME']='STACK'
-    hduout[2].header['EXTNAME']='VARIANCE'
-    return hduout
+    hdu_list = fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
+                             fits.ImageHDU(data=image_array, header=reference_hdu[HSC_HDU_MAP['image']].header),
+                             fits.ImageHDU(data=variance_array, header=reference_hdu[HSC_HDU_MAP['variance']].header)])
+    hdu_list[1].header['EXTNAME'] = 'STACK'
+    hdu_list[2].header['EXTNAME'] = 'VARIANCE'
+    return hdu_list
 
 
 def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
@@ -301,7 +305,8 @@ def mid_exposure_mjd(hdu):
 
 
 def main():
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                                     fromfile_prefix_chars='@')
     parser.add_argument('basedir', help="Root directory of LSST pipelined data")
     parser.add_argument('--pointing', help="sky patch to process (e.g. 0,0)", nargs=1)
     parser.add_argument('--rerun', help="rerun directory containing the warped difference images.", nargs=1)
@@ -366,9 +371,9 @@ def main():
 
     # In debug mode just do three images or less if there aren't three
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
-        nimgs = min(6, len(images))
-        stride = max(1, int(len(images)/nimgs-1))
-        logging.debug(f'Selecting {nimgs}, every {stride} image list.')
+        num_of_images = min(6, len(images))
+        stride = max(1, int(len(images)/num_of_images-1))
+        logging.debug(f'Selecting {num_of_images}, every {stride} image list.')
         images = images[::stride]
 
     hdus = [fits.open(image) for image in images]
@@ -417,15 +422,18 @@ def main():
     if args.mask:
         # set masked pixel to 'nan' before sending for stacking
         for hdu in hdus:
-            hdu[HSC_HDU_MAP['image']].data = mask_as_nan(hdu[HSC_HDU_MAP['image']].data, 
+            hdu[HSC_HDU_MAP['image']].data = mask_as_nan(hdu[HSC_HDU_MAP['image']].data,
                                                          hdu[HSC_HDU_MAP['mask']].data)
+            hdu[HSC_HDU_MAP['variance']].data = mask_as_nan(hdu[HSC_HDU_MAP['variance']].data,
+                                                            hdu[HSC_HDU_MAP['mask']].data)
 
     for rate in shift_rates(args.rate_min, args.rate_max, args.rate_step,
                             args.angle_min, args.angle_max, args.angle_step):
         dra = rate['rate']*np.cos(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
         ddec = rate['rate']*np.sin(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
         for index, sub_stack in enumerate(sub_stacks):
-            output_filename = f'STACK-{reference_filename}-{index:02d}-{rate["rate"]:+05.2f}-{rate["angle"]:+05.2f}.fits'
+            output_filename = f'STACK-{reference_filename}-{index:02d}-' \
+                              f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits'
             output_filename = os.path.join(output_dir, output_filename)
             if os.access(output_filename, os.R_OK):
                 logging.warning(f'{output_filename} exists, skipping')
@@ -434,9 +442,9 @@ def main():
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
             logging.debug(f'Got stack result {output}')
             # Keep a history of which visits when into the stack.
-            output[0].header['NCOMB'] = (len(sub_stack), 'Number combined')
+            output[0].header['NCOMBINE'] = (len(sub_stack), 'Number combined')
             output[0].header['COMBALGO'] = (args.stack_mode, 'Stacking mode')
-            output[0].header['RATE'] = (rate['rate'], 'arcsecond/hour')
+            output[0].header['RATE'] = (rate['rate'], 'arc-second/hour')
             output[0].header['ANGLE'] = (rate['angle'], 'degree')
             output[0].header['DRA'] = (dra.value, str(dra.unit))
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
