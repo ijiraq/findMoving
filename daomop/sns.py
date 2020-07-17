@@ -1,4 +1,5 @@
 import argparse
+import math
 import glob
 import logging
 import os
@@ -220,6 +221,9 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                                          sky_coord[0][1]+ddec.to('degree').value], ], 0)
                 dx = int(rf*(c2[0][0]-c1[0][0]))
                 dy = int(rf*(c2[0][1]-c1[0][1]))
+                if math.fabs(dx) > padding or math.fabs(dy) > padding:
+                    logging.warning(f'Skipping {hdu[0].header.get("FRAMEID", "Unknown")} due to large offset {dx},{dy}')
+                    continue
                 logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
 
                 # Weight by the variance. 
@@ -421,6 +425,11 @@ def main():
         dra = rate['rate']*np.cos(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
         ddec = rate['rate']*np.sin(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
         for index, sub_stack in enumerate(sub_stacks):
+            output_filename = f'STACK-{reference_filename}-{index:02d}-{rate["rate"]:+05.2f}-{rate["angle"]:+05.2f}.fits'
+            output_filename = os.path.join(output_dir, output_filename)
+            if os.access(output_filename, os.R_OK):
+                logging.warning(f'{output_filename} exists, skipping')
+                continue
             output = stack_function(sub_stack, reference_hdu, {'dra': dra, 'ddec': ddec}, 
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
             logging.debug(f'Got stack result {output}')
@@ -433,8 +442,7 @@ def main():
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             for i_index, image_name in enumerate(sub_images[index]):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
-            output_filename = f'STACK-{reference_filename}-{index:02d}-{rate["rate"]:+05.2f}-{rate["angle"]:+05.2f}.fits'
-            output.writeto(os.path.join(output_dir, output_filename))
+            output.writeto(output_filename)
 
     return 0
 
