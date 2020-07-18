@@ -17,6 +17,7 @@ import matplotlib
 
 matplotlib.use('Agg')
 from matplotlib import pyplot
+from .version import __version__
 
 PIX_CUTOUT_SIZE = 64
 VISIT_IN_PLANT_LIST_FILENAME_RE = re.compile(r'0([0-9]{6})')
