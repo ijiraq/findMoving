@@ -1,7 +1,13 @@
 from setuptools import setup, find_packages
+
+version = {}
+with open("daomop/version.py") as fp:
+    exec(fp.read(), version)
+print(version['__version__'])
+
 setup(
     name="daomop",
-    version="0.1",
+    version=version['__version__'],
     packages=find_packages(),
     scripts=['scripts/daomop-stack-cmd'],
     entry_points={
