@@ -5,5 +5,3 @@ matplotlib
 keras
 scikit-learn
 setuptools
-trippy
-
