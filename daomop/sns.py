@@ -12,6 +12,8 @@ from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
 
+from .version import __version__
+
 numpy = np
 
 STACKING_MODES = {'MEDIAN': np.nanmedian,
@@ -60,6 +62,7 @@ def weighted_quantile(values, quantile, sample_weight):
     :param sample_weight: array-like of the same length as `array`
     :return: numpy.array with computed quantiles.
     """
+    logging.debug(f'computing weighted quantile: {quantile}')
     sorter = np.argsort(values, axis=0)
     values = numpy.take_along_axis(values, sorter, axis=0)
     sample_weight = numpy.take_along_axis(sample_weight, sorter, axis=0)
@@ -89,7 +92,7 @@ def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
     # so flip_bits is True
     mask = bitfield_to_boolean_mask(bitmask, ignore_flags=mask_bits, flip_bits=True)
     if init_mask is not None:
-        mask = (mask & init_mask)
+        mask = (mask | init_mask)
     # Set masked entries to 'nan'
     data[mask] = numpy.nan
     return data
@@ -149,6 +152,30 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
         return stack_input
 
 
+def downSample2d(inp, fr):
+    """
+    bin up a image by factor fr
+    :param inp: input array 
+    :param fr: downscaling factor
+    """
+    new_shape = inp.shape[0]//fr, inp.shape[1]//fr
+    fr = inp.shape[0]//new_shape[0], inp.shape[1]//new_shape[1]
+    return inp.reshape((new_shape[0], fr[0], new_shape[1], fr[1])).mean(axis=(-1,1))
+
+
+def upSample2d(A, B, rf):
+    Y = rf*B.shape[0]
+    X = rf*B.shape[1]
+    logging.debug(f'A shape {A.shape} from B shape {B.shape} by rf')
+    for y in range(0, rf):
+        for x in range(0, rf):
+            A[y:Y:rf, x:X:rf] = B
+
+
+def frameid(hdu):
+    return hdu[0].header['FRAMEID']
+
+
 def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024):
     """
     Original pixel grid expansion shift+stack code from wes.
@@ -156,7 +183,6 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     :rtype: fits.HDUList
     :return: combined data after shifting at dx/dy and combined using stacking_mode.
     """
-    from trippy.trippy_utils import downSample2d
     if stacking_mode is None:
         stacking_mode = 'SUM'
     logging.info(f'Combining images using {stacking_mode}')
@@ -179,6 +205,12 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     image_array = np.zeros(reference_hdu[1].data.shape)
     variance_array = np.zeros(reference_hdu[1].data.shape)
     padding = 100
+    # setup the space to store the scaled up image and variance
+    # scaled_images = {}
+    # scaled_variances = {}
+    # for hdu in hdus:
+    #     scaled_images[frameid(hdu)] = np.zeros((rf*(section_size+2*padding), rf*(section_size+2*padding)))
+    #     scaled_variances[frameid(hdu)] = np.zeros((rf*(section_size+2*padding), rf*(section_size+2*padding)))
     for yo in y_section_grid:
         # yo,yp are the bounds were data will be inserted into image_array
         # but we need y1,y2 range of data to come from input to allow for 
@@ -229,13 +261,18 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                 logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
 
                 # Weight by the variance. 
+                # upSample2d(scaled_images[frameid(hdu)], hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf)
+                # upSample2d(scaled_variances[frameid(hdu)], hdu[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf)
+                # y_dim = (y2-y1)*rf
+                # x_dim = (x2-x1)*rf
+                # rep = scaled_images[frameid(hdu)][0:ydim,0:xdim]
+                # variance = scaled_variances[frameid(hdu)][0:ydim,0:xdim]
                 rep = np.repeat(np.repeat(hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf, axis=0),
                                 rf, axis=1)
                 logging.debug("Data from shape {} has been sampled into shape {}".format(
                     hdu[1].data[y1:y2, x1:x2].shape, rep.shape))
                 variance = np.repeat(np.repeat(hdu[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf, axis=0),
                                      rf, axis=1)
-                # rep /= variance
                 # dest_bounds are range of the index where the data should go into
                 # source_bounds are the range of the index where the data come from.
                 # this creates a shift in the data, using index bounds.
@@ -317,7 +354,7 @@ def main():
     parser.add_argument('--exptype', help="What type of exposures to co-add?", default='deepDiff')
     parser.add_argument('--swarp', action='store_true', help="Use projection to do shifts, default is pixel shifts.")
     parser.add_argument('--stack-mode', choices=STACKING_MODES.keys(),
-                        default='WEIGHTED', help="How to combine images.")
+                        default='WEIGHTED_MEDIAN', help="How to combine images.")
     parser.add_argument('--rectify', action='store_true', help="Rectify images to WCS of reference, otherwise "
                                                                "images must be on same grid before loading.")
     parser.add_argument('--log-level', help="What level to log at? (ERROR, INFO, DEBUG)", default="ERROR",
@@ -416,8 +453,8 @@ def main():
                                                      ignore_flags=LSST_MASK_BITS['DETECTED'],
                                                      flip_bits=True)
             logging.debug(f'Bright Mask flagged {np.sum(bright_mask)}')
-            logging.debug(f'Clip setting {np.sum(bright_mask & detected_mask)} to nan')
-            hdu[HSC_HDU_MAP['image']].data[bright_mask & detected_mask] = np.nan
+            logging.debug(f'Clip setting {np.sum(bright_mask | detected_mask)} to nan')
+            hdu[HSC_HDU_MAP['image']].data[bright_mask | detected_mask] = np.nan
 
     if args.mask:
         # set masked pixel to 'nan' before sending for stacking
@@ -442,6 +479,7 @@ def main():
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
             logging.debug(f'Got stack result {output}')
             # Keep a history of which visits when into the stack.
+            output[0].header['SOFTWARE'] = f'f{__name__}-f{__version__}'
             output[0].header['NCOMBINE'] = (len(sub_stack), 'Number combined')
             output[0].header['COMBALGO'] = (args.stack_mode, 'Stacking mode')
             output[0].header['RATE'] = (rate['rate'], 'arc-second/hour')
