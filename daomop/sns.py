@@ -152,24 +152,24 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
         return stack_input
 
 
-def downSample2d(inp, fr):
+def down_sample_2d(inp, fr):
     """
     bin up a image by factor fr
-    :param inp: input array 
+    :param inp: input array
     :param fr: downscaling factor
     """
     new_shape = inp.shape[0]//fr, inp.shape[1]//fr
     fr = inp.shape[0]//new_shape[0], inp.shape[1]//new_shape[1]
-    return inp.reshape((new_shape[0], fr[0], new_shape[1], fr[1])).mean(axis=(-1,1))
+    return inp.reshape((new_shape[0], fr[0], new_shape[1], fr[1])).mean(axis=(-1, 1))
 
 
-def upSample2d(A, B, rf):
-    Y = rf*B.shape[0]
-    X = rf*B.shape[1]
-    logging.debug(f'A shape {A.shape} from B shape {B.shape} by rf')
+def up_sample_2d(output_array, input_array, rf):
+    y_f = rf * input_array.shape[0]
+    x_f = rf * input_array.shape[1]
+    logging.debug(f'Out shape {output_array.shape} from In shape {input_array.shape} by rf')
     for y in range(0, rf):
         for x in range(0, rf):
-            A[y:Y:rf, x:X:rf] = B
+            output_array[y:y_f:rf, x:x_f:rf] = input_array
 
 
 def frameid(hdu):
@@ -261,8 +261,8 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                 logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
 
                 # Weight by the variance. 
-                # upSample2d(scaled_images[frameid(hdu)], hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf)
-                # upSample2d(scaled_variances[frameid(hdu)], hdu[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf)
+                # up_sample_2d(scaled_images[frameid(hdu)], hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf)
+                # up_sample_2d(scaled_variances[frameid(hdu)], hdu[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf)
                 # y_dim = (y2-y1)*rf
                 # x_dim = (x2-x1)*rf
                 # rep = scaled_images[frameid(hdu)][0:ydim,0:xdim]
@@ -307,8 +307,8 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             stacked_variance = STACKING_MODES['MEAN'](variances, axis=0)/num_frames
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
-            image_array[yo:yp, xo:xp] = downSample2d(stacked_data, rf)[yl:yu, xl:xu]
-            variance_array[yo:yp, xo:xp] = downSample2d(stacked_variance, rf)[yl:yu, xl:xu]
+            image_array[yo:yp, xo:xp] = down_sample_2d(stacked_data, rf)[yl:yu, xl:xu]
+            variance_array[yo:yp, xo:xp] = down_sample_2d(stacked_variance, rf)[yl:yu, xl:xu]
     logging.debug(f'Down sampled image has shape {image_array.shape}')
     hdu_list = fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
                              fits.ImageHDU(data=image_array, header=reference_hdu[HSC_HDU_MAP['image']].header),
@@ -413,74 +413,76 @@ def main():
         logging.debug(f'Selecting {num_of_images}, every {stride} image list.')
         images = images[::stride]
 
-    hdus = [fits.open(image) for image in images]
-
-    logging.info(f'Created HDUs for {len(hdus)} fits files from disk')
-
-    argsorted_hdus = time.Time([mid_exposure_mjd(hdu[0]) for hdu in hdus]).argsort()
-    reference_idx = int(len(argsorted_hdus)//2)
-    reference_hdu = hdus[reference_idx]
+    # Organize images in MJD order.
+    images = np.array(images)
+    mjds = []
+    for image in images:
+        with fits.open(image) as hdu:
+            mjds.append(time.Time(mid_exposure_mjd((hdu[0]))))
+    ind = np.argsort(mjds)
+    reference_idx = int(len(ind)//2)
+    images = images[ind]
+    reference_hdu = fits.open(images[reference_idx])
     reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
     logging.debug(f'Will use {reference_filename} as base name for storage.')
-    logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(hdus[reference_idx][0]).isot}')
+    logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
 
-    # Create groups of stacks
-    sub_stacks = []
-    sub_images = []
-    for i in range(args.n_sub_stacks):
-        sub_stacks.append(hdus[i::args.n_sub_stacks])
-        sub_images.append(images[i::args.n_sub_stacks])
+    # do the stacking in groups of images as set from the CL.
+    for index in range(args.n_sub_stacks):
+        sub_images = images[index::args.n_sub_stacks]
+        hdus = [fits.open(image) for image in sub_images]
 
-    if not args.swarp and args.rectify:
-        # Need to project all images to same WCS before passing to stack.
-        logging.info('Swarp-ing the input images to a common projection and reference frame.')
-        swarped = swarp(hdus, reference_hdu, None)
-        for idx in range(len(swarped)):
-            hdus[idx][1].data = swarped[idx].data
-            hdus[idx][1].header = swarped[idx].header
-            hdus[idx][2].data = swarped[idx].mask
-            hdus[idx][3].data = swarped[idx].uncertainty
+        if not args.swarp and args.rectify:
+            # Need to project all images to same WCS before passing to stack.
+            logging.info('Swarp-ing the input images to a common projection and reference frame.')
+            swarped = swarp(hdus, reference_hdu, None)
+            for idx in range(len(swarped)):
+                hdus[idx][1].data = swarped[idx].data
+                hdus[idx][1].header = swarped[idx].header
+                hdus[idx][2].data = swarped[idx].mask
+                hdus[idx][3].data = swarped[idx].uncertainty
 
-    if args.clip is not None:
-        # Use the variance data section to mask high variance pixels from the stack.
-        # mask pixels that are both high-variance AND part of a detected source.
-        logging.info(f'Masking pixels in image whose variance exceeds {args.clip} times the median variance.')
-        for hdu in hdus:
-            hdu[HSC_HDU_MAP['variance']].header['MVAR'] = numpy.nanmedian(hdu[HSC_HDU_MAP['variance']].data)
-            logging.debug(f'Median variance is {hdu[HSC_HDU_MAP["variance"]].header["MVAR"]}')
-            bright_mask = hdu[HSC_HDU_MAP['variance']].data > hdu[HSC_HDU_MAP['variance']].header['MVAR']*args.clip
-            detected_mask = bitfield_to_boolean_mask(hdu[HSC_HDU_MAP['mask']].data,
-                                                     ignore_flags=LSST_MASK_BITS['DETECTED'],
-                                                     flip_bits=True)
-            logging.debug(f'Bright Mask flagged {np.sum(bright_mask)}')
-            logging.debug(f'Clip setting {np.sum(bright_mask | detected_mask)} to nan')
-            hdu[HSC_HDU_MAP['image']].data[bright_mask | detected_mask] = np.nan
+        if args.clip is not None:
+            # Use the variance data section to mask high variance pixels from the stack.
+            # mask pixels that are both high-variance AND part of a detected source.
+            logging.info(f'Masking pixels in image whose variance exceeds {args.clip} times the median variance.')
+            for hdu in hdus:
+                hdu[HSC_HDU_MAP['variance']].header['MVAR'] = (numpy.nanmedian(hdu[HSC_HDU_MAP['variance']].data),
+                                                               'Median variance')
+                logging.debug(f'Median variance is {hdu[HSC_HDU_MAP["variance"]].header["MVAR"]}')
+                bright_mask = hdu[HSC_HDU_MAP['variance']].data > hdu[HSC_HDU_MAP['variance']].header['MVAR']*args.clip
+                detected_mask = bitfield_to_boolean_mask(hdu[HSC_HDU_MAP['mask']].data,
+                                                         ignore_flags=LSST_MASK_BITS['DETECTED'],
+                                                         flip_bits=True)
+                logging.debug(f'Bright Mask flagged {np.sum(bright_mask)}')
+                hdu[HSC_HDU_MAP['image']].data[bright_mask & detected_mask] = np.nan
+                logging.debug(f'Clip setting {np.sum(bright_mask & detected_mask)} to nan')
+                hdu[HSC_HDU_MAP['variance']].data[bright_mask & detected_mask] = np.nan
 
-    if args.mask:
-        # set masked pixel to 'nan' before sending for stacking
-        for hdu in hdus:
-            hdu[HSC_HDU_MAP['image']].data = mask_as_nan(hdu[HSC_HDU_MAP['image']].data,
-                                                         hdu[HSC_HDU_MAP['mask']].data)
-            hdu[HSC_HDU_MAP['variance']].data = mask_as_nan(hdu[HSC_HDU_MAP['variance']].data,
-                                                            hdu[HSC_HDU_MAP['mask']].data)
+        if args.mask:
+            # set masked pixel to 'nan' before sending for stacking
+            for hdu in hdus:
+                hdu[HSC_HDU_MAP['image']].data = mask_as_nan(hdu[HSC_HDU_MAP['image']].data,
+                                                             hdu[HSC_HDU_MAP['mask']].data)
+                hdu[HSC_HDU_MAP['variance']].data = mask_as_nan(hdu[HSC_HDU_MAP['variance']].data,
+                                                                hdu[HSC_HDU_MAP['mask']].data)
 
-    for rate in shift_rates(args.rate_min, args.rate_max, args.rate_step,
-                            args.angle_min, args.angle_max, args.angle_step):
-        dra = rate['rate']*np.cos(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
-        ddec = rate['rate']*np.sin(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
-        for index, sub_stack in enumerate(sub_stacks):
+        for rate in shift_rates(args.rate_min, args.rate_max, args.rate_step,
+                                args.angle_min, args.angle_max, args.angle_step):
+            dra = rate['rate']*np.cos(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
+            ddec = rate['rate']*np.sin(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
             output_filename = f'STACK-{reference_filename}-{index:02d}-' \
                               f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits'
             output_filename = os.path.join(output_dir, output_filename)
             if os.access(output_filename, os.R_OK):
                 logging.warning(f'{output_filename} exists, skipping')
                 continue
-            output = stack_function(sub_stack, reference_hdu, {'dra': dra, 'ddec': ddec}, 
+            output = stack_function(hdus, reference_hdu, {'dra': dra, 'ddec': ddec},
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
             logging.debug(f'Got stack result {output}')
             # Keep a history of which visits when into the stack.
-            output[0].header['SOFTWARE'] = f'f{__name__}-f{__version__}'
-            output[0].header['NCOMBINE'] = (len(sub_stack), 'Number combined')
+            output[0].header['SOFTWARE'] = f'{__name__}-{__version__}'
+            output[0].header['NCOMBINE'] = (len(hdus), 'Number combined')
             output[0].header['COMBALGO'] = (args.stack_mode, 'Stacking mode')
             output[0].header['RATE'] = (rate['rate'], 'arc-second/hour')
             output[0].header['ANGLE'] = (rate['angle'], 'degree')
