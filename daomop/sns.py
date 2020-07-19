@@ -152,7 +152,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
         return stack_input
 
 
-def downSample2d(inp, fr):
+def down_sample_2d(inp, fr):
     """
     bin up a image by factor fr
     :param inp: input array
@@ -160,16 +160,16 @@ def downSample2d(inp, fr):
     """
     new_shape = inp.shape[0]//fr, inp.shape[1]//fr
     fr = inp.shape[0]//new_shape[0], inp.shape[1]//new_shape[1]
-    return inp.reshape((new_shape[0], fr[0], new_shape[1], fr[1])).mean(axis=(-1,1))
+    return inp.reshape((new_shape[0], fr[0], new_shape[1], fr[1])).mean(axis=(-1, 1))
 
 
-def upSample2d(A, B, rf):
-    Y = rf*B.shape[0]
-    X = rf*B.shape[1]
-    logging.debug(f'A shape {A.shape} from B shape {B.shape} by rf')
+def up_sample_2d(output_array, input_array, rf):
+    y_f = rf * input_array.shape[0]
+    x_f = rf * input_array.shape[1]
+    logging.debug(f'Out shape {output_array.shape} from In shape {input_array.shape} by rf')
     for y in range(0, rf):
         for x in range(0, rf):
-            A[y:Y:rf, x:X:rf] = B
+            output_array[y:y_f:rf, x:x_f:rf] = input_array
 
 
 def frameid(hdu):
@@ -261,8 +261,8 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                 logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
 
                 # Weight by the variance. 
-                # upSample2d(scaled_images[frameid(hdu)], hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf)
-                # upSample2d(scaled_variances[frameid(hdu)], hdu[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf)
+                # up_sample_2d(scaled_images[frameid(hdu)], hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf)
+                # up_sample_2d(scaled_variances[frameid(hdu)], hdu[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf)
                 # y_dim = (y2-y1)*rf
                 # x_dim = (x2-x1)*rf
                 # rep = scaled_images[frameid(hdu)][0:ydim,0:xdim]
@@ -307,8 +307,8 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             stacked_variance = STACKING_MODES['MEAN'](variances, axis=0)/num_frames
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
-            image_array[yo:yp, xo:xp] = downSample2d(stacked_data, rf)[yl:yu, xl:xu]
-            variance_array[yo:yp, xo:xp] = downSample2d(stacked_variance, rf)[yl:yu, xl:xu]
+            image_array[yo:yp, xo:xp] = down_sample_2d(stacked_data, rf)[yl:yu, xl:xu]
+            variance_array[yo:yp, xo:xp] = down_sample_2d(stacked_variance, rf)[yl:yu, xl:xu]
     logging.debug(f'Down sampled image has shape {image_array.shape}')
     hdu_list = fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
                              fits.ImageHDU(data=image_array, header=reference_hdu[HSC_HDU_MAP['image']].header),
@@ -481,6 +481,7 @@ def main():
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
             logging.debug(f'Got stack result {output}')
             # Keep a history of which visits when into the stack.
+            output[0].header['SOFTWARE'] = f'{__name__}-{__version__}'
             output[0].header['NCOMBINE'] = (len(hdus), 'Number combined')
             output[0].header['COMBALGO'] = (args.stack_mode, 'Stacking mode')
             output[0].header['RATE'] = (rate['rate'], 'arc-second/hour')
