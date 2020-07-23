@@ -204,7 +204,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     logging.debug(f'Chunk grid: y {x_section_grid}')
     image_array = np.zeros(reference_hdu[1].data.shape)
     variance_array = np.zeros(reference_hdu[1].data.shape)
-    padding = 100
+    padding = 130
     # setup the space to store the scaled up image and variance
     # scaled_images = {}
     # scaled_variances = {}
