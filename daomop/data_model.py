@@ -195,6 +195,9 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
         else:
             xx = numpy.arange(size // 2, images[visit].header['NAXIS1'], size)
             yy = numpy.arange(size // 2, images[visit].header['NAXIS2'], size)
+            mesh = numpy.meshgrid(xx,yy)
+            xx = mesh[0].ravel()
+            yy = mesh[0].ravel()
             num_samples = len(xx)
         # Make an array that contains the coordinate pairs centred on x[o],y[o].
         xy = numpy.vstack((xx, yy)).T
