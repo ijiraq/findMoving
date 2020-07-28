@@ -14,6 +14,7 @@ Scikit learn is a Python module for machine learning built on SciPy.
 2. model selection and validation module
 3. Data conversion and Data loading module
 """
+from .version import __version__
 import argparse
 import logging
 import sys
