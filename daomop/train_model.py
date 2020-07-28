@@ -98,11 +98,14 @@ def load_training_and_validation_sets(image_dir="./data",
     :rtype: np.array, np.array, nd.array, nd.array
     """
     from sklearn import model_selection as md
+    logging.debug(f'{image_dir},{planted_list_dir}')
 
     # Load the image data from disk
     image_pairs = data_model.build_image_pair_list(image_directory=image_dir, num_pairs=num_pairs,
                                                    num_per_pair=num_per_pair, pattern=pattern)
+    logging.debug(f'length of the image pair {len(image_pairs)}')
     table_of_planted_sources = data_model.build_table_of_planted_sources(plant_list_directory=planted_list_dir)
+    logging.debug(f'{table_of_planted_sources}')
     source_cutouts, source_targets, blank_cutouts = data_model.cut(image_pairs,
                                                                    table_of_planted_sources,
                                                                    size=size,
@@ -129,12 +132,17 @@ def load_training_and_validation_sets(image_dir="./data",
     return md.train_test_split(image_cutouts, tar_bin, test_size=test_fraction)
 
 
-def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size=2):
+def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size=2,
+                  node_count_list=[8, 16, 32, 64], dense_node_list=[256, 64], dropout_rate=0.25, optimizer='adam'):
     """
     Get the CNN model used for the moving object detection process.
     :param channels: number of image cutouts packaged together, Currently we do image pairs.
     :param dimension: size, in pixels, of the image sections that will be provided.
     :param kernel_size: size, in pixels, of the Convolution kernel, 2 works well.
+    :param node_count_list: list of node counts of conv2D layers
+    :param dense_node_list: list of node counts of dense layers
+    :param dropout_rate: the ratio of dropout
+    :param optimizer: An optimizer is an algorithm to change weights and learning rate in order to reduce the losses.
     # Not clear why kernel_size = 2 is used, what is the theory?
     :return: A keras CNN model.
     :rtype Model
@@ -156,7 +164,7 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
     batch_normalize = False
     # Build a series of Conv2D layers starting with the main_input1 data.
     cnn = main_input1
-    for node_count in [8, 16, 32, 64]:
+    for node_count in node_count_list:
         cnn = Conv2D(node_count, kernel_size=(kernel_size, kernel_size),
                      activation='relu', padding='same', strides=(1, 1))(cnn)
         # Pull the nodes
@@ -165,6 +173,7 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
         # batch normalize on alternate layers.
         if batch_normalize:
             cnn = BatchNormalization()(cnn)
+            batch_normalize = False
         else:
             batch_normalize = True
 
@@ -181,9 +190,9 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
     # your input vector to be zero with probability keep_prob.
     # A dropout layer does not have any trainable parameters.
     # Dropout technique is to prevent over fitting.
-    for node_count in [256, 64]:
+    for node_count in dense_node_list:
         fc = Dense(node_count, activation='relu')(fc)
-        fc = Dropout(0.25)(fc)
+        fc = Dropout(dropout_rate)(fc)
 
     # For the output layer, we can use either tanh or sigmoid.
     # The reason I use sigmoid (non-linear) function here is because it is a classification problem.
@@ -200,7 +209,7 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
     # It evaluates how well specific algorithm models the given data.
     # The third argument is a metric. I used only accuracy here.
     # The definition of accuracy is given in the later cells.
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
 
     # Display the summary of the model.
     logging.debug(model.summary())
@@ -284,17 +293,22 @@ def main(model_filename="trained_model.ker"):
     parser.add_argument('--epochs', help='How many training epochs to run?', default=50, type=int)
     parser.add_argument('plant_list_dir', help='Directory containing lists of planted sources in plantList format')
     parser.add_argument('image_dir', help='Directory containing images used to train the model.')
-    parser.add_argument('--file-pattern', help='Image files that match pattern will be used.', default='4,4/warp*.fits')
+    parser.add_argument('--file-pattern', help='Image files that match pattern will be used.', default='warp*.fits')
     parser.add_argument('--test-fraction', help='Fraction of the model used to validate with.', default=0.3,
                         type=float)
     parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
     parser.add_argument('--cutout-dimension', help='size, in pixels, of cutouts dimension to work with', type=int,
                         default=CUTOUT_DIMENSION)
     parser.add_argument('--plant-mag-limit', help='faintest planted source to using in training', default=25)
+    parser.add_argument('--kernel-size', help='size of convolution kernels', default=2, type=int)
+    parser.add_argument('--conv-node-list', help='list of counts of convolution layers nodes', type=int, nargs='+', default=[8, 16, 32, 64])
+    parser.add_argument('--dense-node-list', help='list of counts of dense layers nodes', type=int, nargs='+', default=[256,64])
+    parser.add_argument('--dropout-rate', help='ratio of dropout after a dense layer', type=int, default=0.25)
+    parser.add_argument('--optimizer', help='algorithm to change weights and learning rate', type=str, default='Adam')
 
     args = parser.parse_args()
     log_levels = {'DEBUG': logging.DEBUG, 'INFO': logging.INFO, 'ERROR': logging.ERROR}
-    logging.basicConfig(level=log_levels[args.log_level])
+    logging.getLogger().setLevel(log_levels[args.log_level])
     logging.info("Building input dataset for training.")
 
     training_data, validation_data, training_classes, validation_classes = \
@@ -309,7 +323,13 @@ def main(model_filename="trained_model.ker"):
                                           size=args.cutout_dimension,
                                           plant_mag_limit=args.plant_mag_limit)
     logging.info("Constructing the model framework.")
-    model = get_cnn_model(channels=args.num_per_pair, dimension=args.cutout_dimension)
+    model = get_cnn_model(channels=args.num_per_pair,
+                          dimension=args.cutout_dimension,
+                          kernel_size=args.kernel_size,
+                          node_count_list=args.conv_node_list,
+                          dense_node_list=args.dense_node_list,
+                          dropout_rate=args.dropout_rate,
+                          optimizer=args.optimizer)
     logging.info("Training the model.")
     history = train_and_validate_the_model(model, training_data, training_classes,
                                            validation_data, validation_classes, epochs=args.epochs)
@@ -318,6 +338,6 @@ def main(model_filename="trained_model.ker"):
     model.save(f'{args.cutout_dimension}_{args.num_per_pair}_{model_filename}')
     return
 
-
+    
 if __name__ == '__main__':
     sys.exit(main())
