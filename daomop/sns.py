@@ -472,7 +472,7 @@ def main():
             dra = rate['rate']*np.cos(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
             ddec = rate['rate']*np.sin(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
             output_filename = f'STACK-{reference_filename}-{index:02d}-' \
-                              f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits'
+                              f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
             output_filename = os.path.join(output_dir, output_filename)
             if os.access(output_filename, os.R_OK):
                 logging.warning(f'{output_filename} exists, skipping')
