@@ -6,7 +6,7 @@ from trippy import scamp
 faint_mag_limit = -8.0
 mask_sigma = 4.0
 radius_pad = 3
-show_radial_plots = True
+show_radial_plots = False
 
 corr_fn = 'HSC_May25-lsst/rerun/processCcdOutputs/03071/HSC-R2/corr/CORR-0218190-003.fits'
 diff_fn = 'HSC_May25-lsst/rerun/diff/deepDiff/03071/HSC-R2/DIFFEXP-0218190-003.fits'
@@ -116,18 +116,24 @@ for l in range(len(mags)):
 
 print(trim_radii)
 
+num_trim_pix = 0
 for l in range(len(mags)):
     mag_range = [mags[l], mags[l]-0.5]
 
-    trim_w = np.where(r<trim_radii[l]+radius_pad)
+    if trim_radii[l]>0:
+        trim_w = np.where(r<trim_radii[l]+radius_pad)
 
-    w = np.where((ref_catalog['MAG_AUTO']<mag_range[0]) & (ref_catalog['MAG_AUTO']>mag_range[1]))
-    for i in w[0]:
-        ix, iy = int(ref_catalog['XWIN_IMAGE'][i])+cut_width, int(ref_catalog['YWIN_IMAGE'][i])+cut_width
-        cutout = exp_data[iy-half_cut_width:iy+half_cut_width+1, ix-half_cut_width:ix+half_cut_width+1]
-        cutout[trim_w] = np.nan
-        exp_data[iy-half_cut_width:iy+half_cut_width+1, ix-half_cut_width:ix+half_cut_width+1] = cutout
+        w = np.where((ref_catalog['MAG_AUTO']<mag_range[0]) & (ref_catalog['MAG_AUTO']>mag_range[1]))
+        for i in w[0]:
+            ix, iy = int(ref_catalog['XWIN_IMAGE'][i])+cut_width, int(ref_catalog['YWIN_IMAGE'][i])+cut_width
+            cutout = exp_data[iy-half_cut_width:iy+half_cut_width+1, ix-half_cut_width:ix+half_cut_width+1]
+            cutout[trim_w] = np.nan
+            exp_data[iy-half_cut_width:iy+half_cut_width+1, ix-half_cut_width:ix+half_cut_width+1] = cutout
+            num_trim_pix += len(trim_w[0])
 
 with fits.open(diff_fn) as han:
     han[1].data = exp_data[10*int(psf_fwhm):10*int(psf_fwhm)+A, 10*int(psf_fwhm):10*int(psf_fwhm)+B]
     han.writeto(diff_fn.replace('.fits', '_masked.fits'), overwrite=True)
+
+frac = num_trim_pix/(A*B)
+print(f'Trimmed {num_trim_pix} or {frac} of the image area.')
