@@ -15,6 +15,7 @@ setup(
             "daomop-sns = daomop.sns:main",
             "daomop-train-cnn = daomop.train_model:main",
             "daomop-build-plant-db = daomop.build_plant_list_db:main",
+            "daomop-intelligentMasker = daomop.intelligentMasker:main",
         ],
     }
 )
