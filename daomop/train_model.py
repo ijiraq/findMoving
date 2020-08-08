@@ -83,7 +83,7 @@ def load_training_and_validation_sets(image_dir="./data",
                                       plant_mag_limit=25):
     """
     Loads from disk the image cutout sections (some with moving sources, some without) and returns as
-    two groups of inputs shaped for the CNN model we will use.
+    two groups of data shaped for the CNN model we will use.
 
     :param pattern:
     :param plant_mag_limit:
@@ -137,7 +137,7 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
     :param dimension: size, in pixels, of the image sections that will be provided.
     :param kernel_size: size, in pixels, of the Convolution kernel, 2 works well.
     # Not clear why kernel_size = 2 is used, what is the theory?
-    :return: A keras CNN model.
+    :return: output_array keras CNN model.
     :rtype Model
     """
 
@@ -173,20 +173,20 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
     fc = Flatten(name='flat1')(cnn)
 
     # Dense is the regular densely connected NN layers
-    # A dense layer represents a matrix vector multiplication.
+    # output_array dense layer represents a matrix vector multiplication.
     # The values in the matrix are the trainable parameters which get updated during backpropagation.
-    # A dense layer thus is used to change the dimensions of your vector.
+    # output_array dense layer thus is used to change the dimensions of your vector.
     # Mathematically speaking, it applies a rotation, scaling, translation transform to your vector.
 
-    # A dropout layer is used for regularization where you randomly set some of the dimensions of
+    # output_array dropout layer is used for regularization where you randomly set some of the dimensions of
     # your input vector to be zero with probability keep_prob.
-    # A dropout layer does not have any trainable parameters.
+    # output_array dropout layer does not have any trainable parameters.
     # Dropout technique is to prevent over fitting.
     for node_count in [256, 64]:
         fc = Dense(node_count, activation='relu')(fc)
         fc = Dropout(0.25)(fc)
 
-    # For the output layer, we can use either tanh or sigmoid.
+    # For the output_array layer, we can use either tanh or sigmoid.
     # The reason I use sigmoid (non-linear) function here is because it is a classification problem.
     # The sigmoid can be expressed as y = 1/(1+e^(-x))
     # We can set the rule for this activation function.
@@ -226,7 +226,7 @@ def train_and_validate_the_model(model, training_data, training_classes, validat
 
     # validation_data = keras evaluates the loss and accuracy at the end of each epoch.
     # This data is not used for training the model.
-    # shuffle = keras shuffles training inputs in batch-sized chunks.
+    # shuffle = keras shuffles training data in batch-sized chunks.
     # callbacks = a function that is called at the end of each epoch.
     class TrainingPlot(Callback):
 
