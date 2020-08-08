@@ -1,39 +1,72 @@
 #!/bin/bash
 # run sns on a pointing worth of data
+
+if [ $# -lt 3 ]
+then
+  echo "Usage: $0 vos_uri pointing chip [basedir [rerun_diff [rerun_sns]]]"
+  echo ""
+  echo "eg: $0 vos:NewHorizons/S20A-OT04 03068 34 HSC_May25-lsst NHF1_diff NHF1_sns_weighted"
+  echo "Expects vos_uri/DIFFS/ to hold a listing of DIFFS tarballs with LSST DIFF images for a pointing_chip set."
+  echo ""
+  ecoh "$0 pulls a tarball of DIFF image from VOSpace, unpacks them and then calls daomop-sns. "
+  echo "daomop-sns expects to be pointed at an LSST.Pipeline rerun directory that contains DIFF images."
+  echo "LSST.pipeline uses internal concepts to map files into rerun directories. this daomop-sns is very"
+  echo "specialized to that structure"
+  exit 255
+fi
+
 vos_uri=$1
 pointing=$2
 chip=$3
-basedir="HSC_May25-lsst"
-stack_rerun="NHF1_sns_weighted"
-diff_rerun="NHF1_diff"
-ccd=`echo ${chip} | awk ' { printf("%03d",$1) } ' `
+ccd=$(echo "${chip}" | awk ' { printf("%03d",$1) } ')
+
+[ $# -gt 3 ] basedir=$4 || basedir="HSC_May25-lsst"
+[ $# -gt 4 ] diff_rerun=$5 || diff_rerun="NHF1_diff"
+[ $# -gt 6 ] stack_rerun=$6 || stack_rerun="NHF1_sns_weighted"
+
+# Set the range of angles and rates that will be searched.
 angle_max=10
 angle_min=-10
 angle_step=2.5
 rate_min=0.5
 rate_max=3.5
 rate_step=0.5
-while [ -true ] ; do vmkdir -p ${vos_uri}/STACKS_V2/${pointing} && break ; done
-# while [ -true ] ; do vcp -v ${vos_uri}/DIFFS/${pointing}/DIFF-${ccd}.tbz ./ && break ; done 
-# tar xvf DIFF-${ccd}.tbz || exit
-for rate in `seq ${rate_min} ${rate_step} ${rate_max}`;
+clip=16
+
+# make a directory to hold the results.
+while true
 do
-   for angle in `seq ${angle_min} ${angle_step} ${angle_max}`
+  vmkdir -p "${vos_uri}/STACKS_V2/${pointing}" && break
+done
+
+# pull the DIFF tar ball for this CCD from DIFFS/pointing directory on VOSpace.
+while true
+do
+  vcp -v "${vos_uri}/DIFFS/${pointing}/DIFF-${ccd}.tbz" ./ && break
+done
+# unpack that tar ball
+tar xvf "DIFF-${ccd}.tbz" && rm "DIFF-${ccd}.tbz" || exit
+
+for rate in $(seq ${rate_min} ${rate_step} ${rate_max});
+do
+   for angle in $(seq ${angle_min} ${angle_step} ${angle_max})
    do
-       daomop-sns `pwd`/HSC_May25-lsst \
-	   --rerun ${diff_rerun}:${stack_rerun} \
-	   --rate-min ${rate} \
-	   --rate-max ${rate} \
-	   --rate-step ${rate_step} \
-	   --angle-min ${angle} \
-	   --angle-max ${angle} \
-	   --angle-step ${angle_step} \
-	   --pointing ${pointing} \
-	   --ccd ${chip} \
-	   --mask \
-   	   --clip 16 \
-	   --log-level INFO  || exit
-       while [ -true ] ; do vcp -v ${basedir}/rerun/${stack_rerun}/deepDiff/${pointing}/HSC-R2/STACK*.fits ${vos_uri}/STACKS_V2/${pointing}/ && break ; done
-       rm ${basedir}/rerun/${stack_rerun}/deepDiff/${pointing}/HSC-R2/STACK*.fits || exit
+     daomop-sns ${basedir}  --rerun "${diff_rerun}:${stack_rerun}"  --rate-min "${rate}" \
+     --rate-max "${rate}" \
+     --rate-step "${rate_step}" \
+     --angle-min "${angle}" \
+     --angle-max "${angle}" \
+     --angle-step "${angle_step}" \
+     --pointing "${pointing}" \
+     --ccd "${chip}" \
+     --mask \
+     --clip "${clip}" \
+     --log-level INFO  || exit
+     while true
+     do
+       vcp -v "${basedir}/rerun/${stack_rerun}/deepDiff/${pointing}/HSC-R2/"STACK*.fits "${vos_uri}/STACKS_V2/${pointing}/" && break
+     done
+     rm "${basedir}/rerun/${stack_rerun}/deepDiff/${pointing}/HSC-R2/"STACK*.fits || exit
    done
 done
+
