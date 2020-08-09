@@ -1,72 +1,106 @@
-#!/bin/bash
-# run sns on a pointing worth of data
 
-if [ $# -lt 3 ]
-then
-  echo "Usage: $0 vos_uri pointing chip [basedir [rerun_diff [rerun_sns]]]"
-  echo ""
-  echo "eg: $0 vos:NewHorizons/S20A-OT04 03068 34 HSC_May25-lsst NHF1_diff NHF1_sns_weighted"
-  echo "Expects vos_uri/DIFFS/ to hold a listing of DIFFS tarballs with LSST DIFF images for a pointing_chip set."
-  echo ""
-  ecoh "$0 pulls a tarball of DIFF image from VOSpace, unpacks them and then calls daomop-sns. "
-  echo "daomop-sns expects to be pointed at an LSST.Pipeline rerun directory that contains DIFF images."
-  echo "LSST.pipeline uses internal concepts to map files into rerun directories. this daomop-sns is very"
-  echo "specialized to that structure"
-  exit 255
-fi
+function mcp {
+    loop_counter=0
+    while true
+    do
+	vcp -v $1 $2 && break || sleep 10 && loop_counter=$((loop_counter+1)) &&
+ [ "$loop_counter" -lt "1000" ] || return 
+    done
+}
 
+# cadc-get-cert --cert cadcproxy.pem || exit
 vos_uri=$1
-pointing=$2
-chip=$3
-ccd=$(echo "${chip}" | awk ' { printf("%03d",$1) } ')
+shift
+pointing=$1
+shift
+chip=$1
+shift
 
-[ $# -gt 3 ] basedir=$4 || basedir="HSC_May25-lsst"
-[ $# -gt 4 ] diff_rerun=$5 || diff_rerun="NHF1_diff"
-[ $# -gt 6 ] stack_rerun=$6 || stack_rerun="NHF1_sns_weighted"
+basedir=$(pwd)"/HSC_May25-lsst"
+filter="HSC-R2"
+exptype="deepDiff"
+plantOutputs="processCcdOutputs"
+stack_rerun="sns_weighted"
+diff_rerun="diff"
+ccd=$(echo ${chip} | awk ' { printf("%03d",$1) } ' )
 
-# Set the range of angles and rates that will be searched.
-angle_max=10
-angle_min=-10
-angle_step=2.5
-rate_min=0.5
-rate_max=3.5
-rate_step=0.5
-clip=16
-
-# make a directory to hold the results.
-while true
-do
-  vmkdir -p "${vos_uri}/STACKS_V3/${pointing}" && break
-done
+if [ $# -eq 2 ] 
+then
+    angle_min=$1 && shift
+    rate_min=$1 && shift
+    angle_max=${angle_min}
+    rate_max=${rate_min}
+    angle_step=1
+    rate_step=1
+else
+    angle_min=-10 && [ "$#" -gt "0" ] && angle_min=$1 && shift
+    angle_step=2.5 && [ "$#" -gt "0" ] && angle_step=$1 && shift
+    angle_max=10 && [ "$#" -gt "0" ] && angle_max=$1 && shift
+    rate_min=0.5 && [ "$#" -gt "0" ] && rate_min=$1 && shift
+    rate_step=0.5 && [ "$#" -gt "0" ] && rate_step=$1 && shift
+    rate_max=3.5 && [ "$#" -gt "0" ] && rate_max=$1 && shift
+fi
+ 
+# get the psf file for this run
+mcp "${vos_uri}/psf_fwhm.txt" ./
 
 # pull the DIFF tar ball for this CCD from DIFFS/pointing directory on VOSpace.
-while true
-do
-  vcp -v "${vos_uri}/DIFFS/${pointing}/DIFF-${ccd}.tbz" ./ && break
-done
-# unpack that tar ball
-tar xvf "DIFF-${ccd}.tbz" && rm "DIFF-${ccd}.tbz" || exit
+n_diffs=$(ls ${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}/DIFFEXP-*-${ccd}.* | wc -l)
+[ "${n_diffs}" -gt 10 ] || ( mcp -v "${vos_uri}/DIFFS/${pointing}/DIFF-${ccd}.*" ./  && tar xvf "DIFF-${ccd}.*" && rm "DIFF-${ccd}.*" || exit)
 
+# pull the DIFF tar ball for this CCD from DIFFS/pointing directory on VOSpace.
+n_corrs=$(ls ${basedir}/rerun/${plantOutputs}/${pointing}/${filter}/corr/CORR*-${ccd}.* | wc -l)
+[ "${n_corrs}" -gt 10 ] || (mcp -v "${vos_uri}/CORR/${pointing}/CORR-${ccd}.*" ./ && tar xvf "CORR-${ccd}.*" && rm "CORR-${ccd}.*" || exit)
+
+# Build the MASKED versions of the files.
+for fullpath in ${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}/DIFFEXP-*-${ccd}.fits
+do
+        masked="${fullpath%.*}_masked.fits"
+        echo ${masked}
+        [ -f ${masked} ] && continue
+        diff_filename=$(basename ${fullpath})
+        visit=$(echo ${diff_filename} | grep -Eo '[0-9]{7}')
+        visit=${visit##0}
+        fwhm=$(grep "${visit} ${ccd}" psf_fwhm.txt | awk ' { print $3 } ')
+        daomop-intelligentMasker ${basedir} \
+		--rerun ${plantOutputs}:${diff_rerun} \
+		--pointing ${pointing} \
+		--ccd ${chip} \
+		--visit ${visit} \
+		--psf-fwhm ${fwhm}  \
+		--log-level INFO || exit
+done
+
+storage=${vos_uri}/STACKS_V3/${pointing}/${ccd}
+vmkdir -p ${storage}
+echo "# uri:${vos_uri} pointing:${pointing} chip:${chip} amax:${angle_min} astep:${angle_step} amin:${angle_min} rmin:${rate_min} rstep:${rate_step} rmax
+:${rate_max}"
 for rate in $(seq ${rate_min} ${rate_step} ${rate_max});
 do
-   for angle in $(seq ${angle_min} ${angle_step} ${angle_max})
-   do
-     daomop-sns ${basedir}  --rerun "${diff_rerun}:${stack_rerun}"  --rate-min "${rate}" \
-     --rate-max "${rate}" \
-     --rate-step "${rate_step}" \
-     --angle-min "${angle}" \
-     --angle-max "${angle}" \
-     --angle-step "${angle_step}" \
-     --pointing "${pointing}" \
-     --ccd "${chip}" \
-     --mask \
-     --clip "${clip}" \
-     --log-level INFO  || exit
-     while true
-     do
-       vcp -v "${basedir}/rerun/${stack_rerun}/deepDiff/${pointing}/HSC-R2/"STACK*.fits "${vos_uri}/STACKS_V2/${pointing}/" && break
-     done
-     rm "${basedir}/rerun/${stack_rerun}/deepDiff/${pointing}/HSC-R2/"STACK*.fits || exit
+    echo "${rate}"
+    for angle in $(seq ${angle_min} ${angle_step} ${angle_max})
+    do
+	echo "${angle}"
+	echo "${pattern}"
+	pattern=$(echo ${chip} ${rate} ${angle} | awk ' { printf("-%03d-0[0-2]-%+06.2f-%+06.2f.fits.fz", $1, $2, $3 ) } ')
+	[ $(vls ${storage} | grep -- ${pattern} | wc -l) -eq 3 ] && echo "${pattern} already done " && continue 
+	daomop-sns ${basedir} \
+		   --rerun ${diff_rerun}:${stack_rerun} \
+		   --rate-min ${rate} \
+		   --rate-max ${rate} \
+		   --rate-step ${rate_step} \
+		   --angle-min ${angle} \
+		   --angle-max ${angle} \
+		   --angle-step ${angle_step} \
+		   --pointing ${pointing} \
+		   --ccd ${chip} \
+		   --mask \
+		   --section-size 600 \
+		   --masked \
+   		   --clip 16 \
+	           --log-level INFO  || exit
+	mcp "${basedir}/rerun/${stack_rerun}/${exptype}/${pointing}/${filter}/STACK*.fits.fz" ${storage}/ || exit
+	rm ${basedir}/rerun/${stack_rerun}/${exptype}/${pointing}/${filter}/STACK*.fits.fz || exit
    done
 done
 
