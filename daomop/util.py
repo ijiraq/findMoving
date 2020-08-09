@@ -9,7 +9,7 @@ base_parser.add_argument('--field', help='Which FIELD to process', choices=['NHF
 base_parser.add_argument('--patch', help="sky patch to process (e.g. 0,0)", nargs=1)
 base_parser.add_argument('--rerun', help="rerun directory containing the warped difference images.", nargs=1)
 base_parser.add_argument('--filter', help="Filter to stack", default="HSC-R2")
-base_parser.add_argument('--visit', help='visit to process.', default=None)
+base_parser.add_argument('--visit', type=int, help='visit to process.', default=None)
 base_parser.add_argument('--ccd', help="Which CCD to stack?", type=int, default=None)
 base_parser.add_argument('--log-level', help="What level to log at? (ERROR, INFO, DEBUG)", default="ERROR",
                          choices=['INFO', 'ERROR', 'DEBUG'])
