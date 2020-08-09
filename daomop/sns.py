@@ -209,7 +209,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     variance_array = np.zeros(reference_hdu[1].data.shape)
     # putt a padding box around our image to account for the maximum object shear
     # between the first and final image (which are about 4 hours apart)
-    padding = (rx**2+ry**2)*4.0/0.15
+    padding = ((rx.to('arcsec/hour').value)**2+(ry.to('arcsec/hour').value)**2)*4.0/0.15
     # setup the space to store the scaled up image and variance
     # scaled_images = {}
     # scaled_variances = {}
