@@ -193,8 +193,11 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     logging.info(f'Shifting at ({rx},{ry})')
 
     mid_mjd = mid_exposure_mjd(reference_hdu[0])
-    wcs = WCS(reference_hdu[1].header)
-    ref_skycoord = wcs.wcs_pix2world([reference_hdu[1].data.shape, ], 0)
+    w = WCS(reference_hdu[1].header)
+    xc = reference_hdu[1].data.shape[1]/2.0
+    yc = reference_hdu[1].data.shape[0]/2.0
+    ref_ra, ref_dec = w.wcs_pix2world(xc, yc, 0)
+    ref_skycoord = ref_ra, ref_dec
     logging.debug(f'Reference Sky Coord {ref_skycoord}')
     logging.debug(f'Reference exposure taken at {mid_mjd.isot}')
     logging.info(f'Shifting {len(hdus)} to remove object motion')
@@ -238,23 +241,28 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                 # compute the x and y shift for image at this time and scale the size of shift for the
                 # scaling factor of this shift.
                 logging.debug(f'Adding exposure taken at {mid_exposure_mjd(hdu[0]).isot}')
-                wcs = WCS(hdu[1].header)
+                w = WCS(hdu[1].header)
                 dra = (rx*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
                 ddec = (ry*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
                 logging.debug(f'Working on array {hdu[0]} of size '
                               f'{hdu[1].data.shape} and shifting by '
                               f'dx {dra} and dy {ddec}')
                 # Use the WCS to determine the x/y shit to allow for different ccd orientations.
-                sky_coord = wcs.wcs_pix2world((hdu[1].data.shape,), 0)
+                xc = hdu[1].data.shape[1]/2.0
+                yc = hdu[1].data.shape[0]/2.0
+                sky_ra, sky_dec = w.wcs_pix2world(xc, yc, 0)
+                sky_coord = sky_ra, sky_dec
                 logging.debug(f'Corner of the FOV is {sky_coord}')
                 # Add offset needed to align the corner of the image with the reference image.
-                dra -= (ref_skycoord[0][0] - sky_coord[0][0])*units.degree
-                ddec -= (ref_skycoord[0][1] - sky_coord[0][1])*units.degree
-                c1 = wcs.wcs_world2pix(sky_coord, 0)
-                c2 = wcs.wcs_world2pix([[sky_coord[0][0]+dra.to('degree').value,
-                                         sky_coord[0][1]+ddec.to('degree').value], ], 0)
-                dx = int(rf*(c2[0][0]-c1[0][0]))
-                dy = int(rf*(c2[0][1]-c1[0][1]))
+                dra -= (ref_skycoord[0] - sky_coord[0])*units.degree
+                ddec -= (ref_skycoord[1] - sky_coord[1])*units.degree
+                _x, _y = w.wcs_world2pix(sky_coord[0], sky_coord[1], 0)
+                c1 = _x, _y
+                _x, _y = w.wcs_world2pix(sky_coord[0]+dra.to('degree').value,
+                                         sky_coord[1]+ddec.to('degree').value, 0)
+                c2 = _x, _y
+                dx = int(rf*(c2[0]-c1[0]))
+                dy = int(rf*(c2[1]-c1[1]))
                 if math.fabs(dx) > padding or math.fabs(dy) > padding:
                     logging.warning(f'Skipping {hdu[0].header.get("FRAMEID", "Unknown")} due to large offset {dx},{dy}')
                     continue
@@ -366,6 +374,7 @@ def main():
                         help='Mask pixel whose variance is clip times the median variance')
     parser.add_argument('--section-size', type=int, default=1024,
                         help='Break images into section when stacking (conserves memory)')
+    parser.add_argument('--masked', action='store_true', help='pattern match: DIFF*{ccd}*_masked.fits')
 
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -387,8 +396,13 @@ def main():
         input_rerun = reruns[0]
         output_rerun = reruns[1]
 
+    if args.masked:
+        filename_pattern = f'DIFF*-{ccd}_masked.fits'
+    else:
+        filename_pattern = f'DIFF*_{ccd}.fits'
+
     input_dir = os.path.join(args.basedir, 'rerun', input_rerun, args.exptype,
-                             args.pointing[0], args.filter, f'DIFF*-{ccd}.fits')
+                             args.pointing, args.filter, filename_pattern)
     logging.info(f'Loading all images matching pattern: {input_dir}')
     images = glob.glob(input_dir)
     if not len(images) > 0:
@@ -396,7 +410,7 @@ def main():
     images.sort()
     images = np.array(images)
 
-    output_dir = os.path.join(args.basedir, 'rerun', output_rerun, args.exptype, args.pointing[0], args.filter)
+    output_dir = os.path.join(args.basedir, 'rerun', output_rerun, args.exptype, args.pointing, args.filter)
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f'Writing results to {output_dir}')
 
