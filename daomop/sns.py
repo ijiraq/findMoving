@@ -11,7 +11,7 @@ from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
-
+from . import util
 from .version import __version__
 
 numpy = np
@@ -343,22 +343,17 @@ def mid_exposure_mjd(hdu):
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-                                     fromfile_prefix_chars='@')
-    parser.add_argument('basedir', help="Root directory of LSST pipelined data")
-    parser.add_argument('--pointing', help="sky patch to process (e.g. 0,0)", nargs=1)
-    parser.add_argument('--rerun', help="rerun directory containing the warped difference images.", nargs=1)
-    parser.add_argument('--filter', help="Filter to stack", default="HSC-R2")
+                                     fromfile_prefix_chars='@',
+                                     parents=[util.base_parser])
+
     parser.add_argument('--pixel-scale', help="What should the pixel scale of the stack be? (in arc-seconds)",
                         default=0.16)
-    parser.add_argument('--ccd', help="Which CCD to stack?", type=int, default=0)
     parser.add_argument('--exptype', help="What type of exposures to co-add?", default='deepDiff')
     parser.add_argument('--swarp', action='store_true', help="Use projection to do shifts, default is pixel shifts.")
     parser.add_argument('--stack-mode', choices=STACKING_MODES.keys(),
                         default='WEIGHTED_MEDIAN', help="How to combine images.")
     parser.add_argument('--rectify', action='store_true', help="Rectify images to WCS of reference, otherwise "
                                                                "images must be on same grid before loading.")
-    parser.add_argument('--log-level', help="What level to log at? (ERROR, INFO, DEBUG)", default="ERROR",
-                        choices=['INFO', 'ERROR', 'DEBUG'])
     parser.add_argument('--mask', action='store_true', help='set masked pixels to nan before shift/stack')
     parser.add_argument('--n-sub-stacks', default=3, help='How many sub-stacks should we produce')
     parser.add_argument('--rate-min', type=float, default=1, help='Minimum shift rate ("/hr)')
@@ -373,8 +368,7 @@ def main():
                         help='Break images into section when stacking (conserves memory)')
 
     args = parser.parse_args()
-    levels = {'INFO': logging.INFO, 'ERROR': logging.ERROR, 'DEBUG': logging.DEBUG}
-    logging.basicConfig(level=levels[args.log_level])
+    logging.basicConfig(level=getattr(logging, args.log_level))
 
     if args.swarp:
         stack_function = swarp

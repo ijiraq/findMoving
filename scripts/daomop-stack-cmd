@@ -36,7 +36,7 @@ clip=16
 # make a directory to hold the results.
 while true
 do
-  vmkdir -p "${vos_uri}/STACKS_V2/${pointing}" && break
+  vmkdir -p "${vos_uri}/STACKS_V3/${pointing}" && break
 done
 
 # pull the DIFF tar ball for this CCD from DIFFS/pointing directory on VOSpace.
