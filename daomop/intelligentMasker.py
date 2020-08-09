@@ -16,8 +16,8 @@ def main():
     parser.add_argument('--faint-mag-limit', help="Faintest sources to mask (in relative mags)",
                         type=float,
                         default=-8.0)
-    parser.add_argument('--psf-fwhm', help='FWHM as determined from the PSF', type=float, nargs=1)
-    parser.add_argument('--clip', type=int, default=None,
+    parser.add_argument('--psf-fwhm', help='FWHM as determined from the PSF', type=float, default=5.0)
+    parser.add_argument('--clip', type=int, default=16,
                         help='Mask pixel whose variance is clip times the median variance')
 
     parser.add_argument('--padding-radius', help='Pad out masking by this many pxiels', type=int, default=3)
@@ -28,6 +28,8 @@ def main():
     faint_mag_limit = args.faint_mag_limit
     radius_pad = args.padding_radius
     psf_fwhm = args.psf_fwhm
+    visit = args.visit
+    ccd = args.ccd
 
     show_radial_plots = False
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
@@ -37,24 +39,31 @@ def main():
     input_rerun, output_rerun = util.parse_rerun(args.rerun)
 
     corr_dir = os.path.join(args.basedir, 'rerun', input_rerun, args.pointing, args.filter, 'corr')
-    diff_dir = os.path.join(args.basedir, 'rerun', output_rerun, 'deepDiff', args.pointing)
+    diff_dir = os.path.join(args.basedir, 'rerun', output_rerun, 'deepDiff', args.pointing, args.filter)
+    logging.debug(f'Set CORR dir to: {corr_dir}')
+    logging.debug(f'Set DIFF dir to: {corr_dir}')
 
-    corr_pattern = 'CORR-{visit:07d}-{ccd:03d}.f*'
-    diff_pattern = 'DIFFEXP-{visit:07d}-{ccd:03d}.f*'
-    corr_fn = corr_pattern.format(visit=args.visit,
-                                  ccd=args.ccd)
-    diff_fn = diff_pattern.format(visit=args.visit,
-                                  ccd=args.ccd)
+    corr_pattern = 'CORR-{visit:07d}-{ccd:03d}.fits'
+    diff_pattern = 'DIFFEXP-{visit:07d}-{ccd:03d}.fits'
+    corr_fn = os.path.join(corr_dir, corr_pattern.format(visit=args.visit,
+                                  ccd=args.ccd))
+    diff_fn = os.path.join(diff_dir, diff_pattern.format(visit=args.visit,
+                                  ccd=args.ccd))
 
-    with fits.open(os.path.join(corr_dir, corr_fn)) as han:
+    logging.debug(f'Attempting to open corr image at {corr_fn}')
+    with fits.open(corr_fn) as han:
         corr_data = han[1].data
         header = han[1].header
 
-    with fits.open(os.path.join(diff_dir, diff_fn)) as han:
+    logging.debug(f'Attempting to open diff image at {diff_fn}')
+    with fits.open(diff_fn) as han:
         diff_data = han[1].data
         med_var = np.nanmedian(han[3].data)
 
+    logging.debug(f'Determined the median variance to be: {med_var}')
     abs_upper_limit = (args.clip * med_var) ** 0.5
+    logging.debug(f'Clipping abs_upper_limit is {abs_upper_limit}')
+    logging.info(f'Masking {diff_fn} around bright stars found in {corr_fn} with fwhm of {psf_fwhm}')
 
     # cutout parameters
     cut_width = 10*int(psf_fwhm)
@@ -73,13 +82,14 @@ def main():
     r = np.sqrt(np.sum((coords-cent)**2, axis=2))
     r_reshape = r.reshape((cut_width+1)**2)
 
-    cat_file = tempfile.NamedTemporaryFile(suffix='.cat', dir='..')
-    param_file = tempfile.NamedTemporaryFile(suffix='.param', dir='./')
-    sex_file = tempfile.NamedTemporaryFile(suffix='.sex', dir='.')
+    cat_filename = f'{visit:07d}-{ccd:03d}.cat'
+    param_filename = f'{visit:07d}-{ccd:03d}.param'
+    sex_filename = f'{visit:07d}-{ccd:03d}.sex'
+    fits_filename = f'{visit:07d}-{ccd:03d}.fits'
     scamp.makeParFiles.writeConv()
-    scamp.makeParFiles.writeParam(fileName=param_file.name, numAps=1)
-    scamp.makeParFiles.writeSex(sex_file.name,
-                                paramFileName=param_file.name,
+    scamp.makeParFiles.writeParam(fileName=param_filename, numAps=1)
+    scamp.makeParFiles.writeSex(sex_filename,
+                                paramFileName=param_filename,
                                 minArea=5.,
                                 threshold=5.,
                                 zpt=0.0,
@@ -88,14 +98,13 @@ def main():
                                 catalogType='FITS_LDAC',
                                 saturate=60000)
 
-    fits_file = tempfile.NamedTemporaryFile(suffix='.fits', dir='./')
-    fits.writeto(filename=fits_file.name, data=corr_data, header=header)
+    fits.writeto(filename=fits_filename, data=corr_data, header=header, overwrite=True)
 
-    scamp.runSex(sex_file, fits_file.name,
-                 options={'CATALOG_NAME': cat_file.name},
+    scamp.runSex(sex_filename, fits_filename,
+                 options={'CATALOG_NAME': cat_filename},
                  verbose=logging.getLogger().getEffectiveLevel() < logging.WARNING)
-    ref_catalog = scamp.getCatalog(cat_file,
-                                   paramFile=param_file)
+    ref_catalog = scamp.getCatalog(cat_filename,
+                                   paramFile=param_filename)
 
     (A, B) = corr_data.shape
     exp_data = np.zeros((A+20*int(psf_fwhm), B+20*int(psf_fwhm)), dtype=corr_data.dtype)
