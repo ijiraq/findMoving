@@ -8,7 +8,11 @@ function mcp {
     done
 }
 
+function gt { $(echo  ${1} ${2} | awk ' { if ( $1 > $2 ) { print("true") } else { print("false") }}' ); }
+
 # cadc-get-cert --cert cadcproxy.pem || exit
+basedir=$1
+shift
 vos_uri=$1
 shift
 pointing=$1
@@ -16,10 +20,10 @@ shift
 chip=$1
 shift
 
-basedir=$(pwd)"/HSC_May25-lsst"
 filter="HSC-R2"
 exptype="deepDiff"
-plantOutputs="processCcdOutputs"
+plantOutputs="plantOutputs"
+processCcdOutputs="processCcdOutputs"
 stack_rerun="sns_weighted"
 diff_rerun="diff"
 ccd=$(echo ${chip} | awk ' { printf("%03d",$1) } ' )
@@ -40,7 +44,7 @@ else
     rate_step=0.5 && [ "$#" -gt "0" ] && rate_step=$1 && shift
     rate_max=3.5 && [ "$#" -gt "0" ] && rate_max=$1 && shift
 fi
- 
+
 # pull the DIFF tar ball for this CCD from DIFFS/pointing directory on VOSpace.
 n_diffs=$(ls ${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}/DIFFEXP-*-${ccd}_masked.* | wc -l)
 [ "${n_diffs}" -gt 10 ] || ( mcp "${vos_uri}/DIFFS/${pointing}/DIFF-${pointing}-${ccd}_masked.*" ./  && tar xvf DIFF-${pointing}-${ccd}_masked.* && rm DIFF-${pointing}-${ccd}_masked.* || echo "NO MASKED FILES" )
@@ -59,6 +63,8 @@ then
    # pull the CORR tar ball for this CCD from DIFFS/pointing directory on VOSpace.
    n_corrs=$(ls ${basedir}/rerun/${plantOutputs}/${pointing}/${filter}/corr/CORR*-${ccd}.* | wc -l)
    [ "${n_corrs}" -gt 10 ] || (mcp "${vos_uri}/CORR/${pointing}/CORR-${ccd}.*" ./ && tar xvf CORR-${ccd}.* && rm CORR-${ccd}.* || exit)
+   # for the MAY data the plant directory was the process directory.
+   [ -d ${basedir}/rerun/${processCcdOutputs} ] && [ ! -d ${basedir}/rerun/${plantOutputs} ] && ln -s $(pwd)/${basedir}/rerun/${processCcdOutputs} ${basedir}/rerun/${plantOutputs} 
 
    # Build the MASKED versions of the files.
    for fullpath in ${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}/DIFFEXP-*-${ccd}.fits
@@ -122,6 +128,7 @@ do
 	           --log-level INFO  || exit
 	mcp "${basedir}/rerun/${stack_rerun}/${exptype}/${pointing}/${filter}/STACK*.fits.fz" ${storage}/ || exit
 	rm ${basedir}/rerun/${stack_rerun}/${exptype}/${pointing}/${filter}/STACK*.fits.fz || exit
+        gt ${rate} 0  || break
    done
 done
 
