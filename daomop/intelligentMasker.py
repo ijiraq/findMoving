@@ -30,6 +30,7 @@ def main():
     psf_fwhm = args.psf_fwhm
     visit = args.visit
     ccd = args.ccd
+    temp_file_list = []
 
     show_radial_plots = False
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
@@ -86,6 +87,10 @@ def main():
     param_filename = f'{visit:07d}-{ccd:03d}.param'
     sex_filename = f'{visit:07d}-{ccd:03d}.sex'
     fits_filename = f'{visit:07d}-{ccd:03d}.fits'
+    temp_file_list.append(cat_filename)
+    temp_file_list.append(param_filename)
+    temp_file_list.append(sex_filename)
+    temp_file_list.append(fits_filename)
     scamp.makeParFiles.writeConv()
     scamp.makeParFiles.writeParam(fileName=param_filename, numAps=1)
     scamp.makeParFiles.writeSex(sex_filename,
@@ -174,6 +179,12 @@ def main():
 
     frac = num_trim_pix/(A*B)
     logging.info(f'Trimmed {num_trim_pix} or {frac} of the image area.')
+
+    # Clean up temp files if this is not a DEBUG run
+    if logging.getLogger().getEffectiveLevel() > logging.DEBUG:
+        for filename in temp_file_list:
+            if os.access(filename, os.R_OK):
+                os.unlink(filename)
 
 
 if '__name__' == '__main__':
