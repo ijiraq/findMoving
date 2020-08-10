@@ -19,7 +19,6 @@ def main():
     parser.add_argument('--psf-fwhm', help='FWHM as determined from the PSF', type=float, default=5.0)
     parser.add_argument('--clip', type=int, default=16,
                         help='Mask pixel whose variance is clip times the median variance')
-
     parser.add_argument('--padding-radius', help='Pad out masking by this many pxiels', type=int, default=3)
 
     args = parser.parse_args()
@@ -52,6 +51,11 @@ def main():
                                   ccd=args.ccd))
 
     logging.debug(f'Attempting to open corr image at {corr_fn}')
+    if not os.access(corr_fn, os.R_OK):
+        # try .fz version
+        corr_pattern = 'CORR-{visit:07d}-{ccd:03d}.fits.fz'
+        corr_fn = os.path.join(corr_dir, corr_pattern.format(visit=args.visit,
+                               ccd=args.ccd))
     with fits.open(corr_fn) as han:
         corr_data = han[1].data
         header = han[1].header
