@@ -54,7 +54,7 @@ if [ "${n_diffs}" -lt 10 ]
 then
    echo "Getting DIFFS and making MASKED version"
    # get the psf file for this run
-   mcp "${vos_uri}/psf_fwhm.txt" ./
+   mcp "${vos_uri}/${basedir}psf_fwhm.txt" ./
 
    # pull the DIFF tar ball if _masked didn't exist for this CCD from DIFFS/pointing directory on VOSpace.
    n_diffs=$(ls ${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}/DIFFEXP-*-${ccd}* | wc -l)
