@@ -116,8 +116,11 @@ def main():
                                    paramFile=param_filename)
 
     (A, B) = corr_data.shape
+
     exp_data = np.zeros((A+20*int(psf_fwhm), B+20*int(psf_fwhm)), dtype=corr_data.dtype)
     exp_data[10*int(psf_fwhm):10*int(psf_fwhm)+A, 10*int(psf_fwhm):10*int(psf_fwhm)+B] = diff_data
+    MAX_A = A
+    MAX_B = B
 
     mags = np.arange(faint_mag_limit, -30, -0.25)
     trim_radii = []
@@ -135,8 +138,12 @@ def main():
         vals = []
         for i in w[0]:
             ix, iy = int(ref_catalog['XWIN_IMAGE'][i])+cut_width, int(ref_catalog['YWIN_IMAGE'][i])+cut_width
+            if not 0 < ix-cut_width < MAX_B or not 0 < iy-cut_width < MAX_A+cut_width:
+                logging.warning("SEX gave a star outside the image: {ref_catalog[i]}")
+                continue
             cutout = exp_data[iy-half_cut_width:iy+half_cut_width+1, ix-half_cut_width:ix+half_cut_width+1]
             (a, b) = cutout.shape
+            logging.debug(f'Extracting shape of {a},{b} around {ix},{iy}')
             vals.append(cutout.reshape(a*b))
 
         med_vals = np.nanmedian(vals, axis=0)
@@ -172,6 +179,9 @@ def main():
             w = np.where((ref_catalog['MAG_AUTO'] < mag_range[0]) & (ref_catalog['MAG_AUTO'] > mag_range[1]))
             for i in w[0]:
                 ix, iy = int(ref_catalog['XWIN_IMAGE'][i])+cut_width, int(ref_catalog['YWIN_IMAGE'][i])+cut_width
+                if not 0 < ix-cut_width < MAX_B or not 0 < iy-cut_width < MAX_A+cut_width:
+                    logging.warning("SEX gave a star outside the image: {ref_catalog[i]}")
+                    continue
                 cutout = exp_data[iy-half_cut_width:iy+half_cut_width+1, ix-half_cut_width:ix+half_cut_width+1]
                 cutout[trim_w] = np.nan
                 exp_data[iy-half_cut_width:iy+half_cut_width+1, ix-half_cut_width:ix+half_cut_width+1] = cutout
