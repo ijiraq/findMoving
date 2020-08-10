@@ -217,7 +217,8 @@ def cut(pairs, full_plant_list, random=True, size=PIX_CUTOUT_SIZE, num_samples=1
                     plant_list = get_visit_plant_list(visit, full_plant_list)
                     image_wcs = wcs.WCS(image.header)
                     image_cutout = Cutout2D(image.data, p, size, wcs=image_wcs, mode='strict')
-                    image_cutout.data = numpy.nan_to_num(image_cutout.data, nan=-100)
+                    bg = numpy.nanmedian(image_cutout.data)
+                    image_cutout.data = numpy.nan_to_num(image_cutout.data, nan=bg)
                     if numpy.isnan(image_cutout.data).any():
                         raise ValueError("Cutout of {} at {} has NaN".format(p, visit))
                     # determine which planted sources are in this cutout.
