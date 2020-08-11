@@ -76,13 +76,14 @@ then
         visit=$(echo ${diff_filename} | grep -Eo '[0-9]{7}')
         visit=${visit##0}
         fwhm=$(grep "${visit} ${ccd}" psf_fwhm.txt | awk ' { print $3 } ')
+	[ "Z"${fwhm} == "Z" ] && fwhm=6.0
         daomop-intelligentMasker ${basedir} \
 		--rerun ${plantOutputs}:${diff_rerun} \
 		--pointing ${pointing} \
 		--ccd ${chip} \
 		--visit ${visit} \
 		--psf-fwhm ${fwhm}  \
-		--log-level INFO || exit
+		--log-level INFO
    done
 
    echo "Putting MASKED version to VOSpace"
