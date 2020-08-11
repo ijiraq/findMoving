@@ -14,13 +14,13 @@ Scikit learn is a Python module for machine learning built on SciPy.
 2. model selection and validation module
 3. Data conversion and Data loading module
 """
-from .version import __version__
+# from .version import __version__
 import argparse
 import logging
 import sys
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from . import data_model
 from keras import backend
@@ -30,6 +30,7 @@ from keras.layers import Flatten
 from keras.layers import Input
 from keras.layers.convolutional import Conv2D
 from keras.layers.pooling import MaxPooling2D
+from keras.regularizers import l1, l2
 from keras.models import Model
 from keras.callbacks import Callback
 
@@ -71,9 +72,9 @@ def plot_training_outcome(history, output_file_base=None):
         plt.savefig("{}_loss.pdf".format(output_file_base))
 
 
-def load_training_and_validation_sets(image_dir="./data",
+def load_training_and_validation_sets(image_dir,
+                                      planted_list_dir,
                                       pattern='warp*.fits',
-                                      planted_list_dir="./data",
                                       test_fraction=0.3,
                                       size=CUTOUT_DIMENSION,
                                       random=True,
@@ -95,47 +96,73 @@ def load_training_and_validation_sets(image_dir="./data",
     :param random: should the grid of cutouts be regular (False) or randomized (True)
     :param num_samples: How many cutout samples should we gather.
     :param num_pairs: How many image pairs to use, None ==> All possible.
+    :param data_name: assign a name you would like to either generate or open. Include '.npy'.
     :return: list of training and validation arrays.
     :rtype: np.array, np.array, nd.array, nd.array
     """
     from sklearn import model_selection as md
+    import os
+    logging.debug(f'{image_dir},{planted_list_dir}')
+    logging.debug(os.listdir('.'))
+    if os.access(f'{image_dir}.npy', os.R_OK):
+        with open(f'{image_dir}.npy', 'rb') as f:
+            image_cutouts = np.load(f)
+            tar_bin = np.load(f)
+    else:
+        # Load the image data from disk
+        image_pairs = data_model.build_image_pair_list(image_directory=image_dir, num_pairs=num_pairs,
+                                                       num_per_pair=num_per_pair, pattern=pattern)
+        logging.debug(f'length of the image pair {len(image_pairs)}')
+        table_of_planted_sources = data_model.build_table_of_planted_sources(plant_list_directory=planted_list_dir)
+        logging.debug(f'{table_of_planted_sources}')
+        source_cutouts, source_targets, blank_cutouts = data_model.cut(image_pairs,
+                                                                       table_of_planted_sources,
+                                                                       size=size,
+                                                                       random=random,
+                                                                       num_samples=num_samples,
+                                                                       plant_mag_limit=plant_mag_limit)
 
-    # Load the image data from disk
-    image_pairs = data_model.build_image_pair_list(image_directory=image_dir, num_pairs=num_pairs,
-                                                   num_per_pair=num_per_pair, pattern=pattern)
-    table_of_planted_sources = data_model.build_table_of_planted_sources(plant_list_directory=planted_list_dir)
-    source_cutouts, source_targets, blank_cutouts = data_model.cut(image_pairs,
-                                                                   table_of_planted_sources,
-                                                                   size=size,
-                                                                   random=random,
-                                                                   num_samples=num_samples,
-                                                                   plant_mag_limit=plant_mag_limit)
-
-    # the data_model.cut has a pair index first index and we don't care about image pair
-    # index here.  Reshape the data arrays to remove grouping by image pairs
-    # Need to use the same number of blanks as source cutouts.
-    logging.debug("Loading data resulted in {} possible source cutouts.".format(source_cutouts.shape[0]))
-    logging.debug("Loading data resulted in {} possible blank cutouts.".format(blank_cutouts.shape[0]))
-    num_of_sets_to_use = min(blank_cutouts.shape[0], source_cutouts.shape[0])
-    logging.debug("This is how many cutouts we will use: {}".format(num_of_sets_to_use))
-    if num_of_sets_to_use < 1:
-        raise ValueError("Too little data for training.")
-    # image_cutouts_grouped_by_pair hold the image cutouts in an array with each element having shape 2xndimx2ndim
-    np.random.shuffle(source_cutouts)
-    np.random.shuffle(blank_cutouts)
-    image_cutouts = np.append(source_cutouts[0:num_of_sets_to_use],
-                              blank_cutouts[0:num_of_sets_to_use], axis=0)
-    # tar_bin holds 1 for the source and 0 for the blank cutouts.
-    tar_bin = np.append(np.ones(num_of_sets_to_use), np.zeros(num_of_sets_to_use))
+        # the data_model.cut has a pair index first index and we don't care about image pair
+        # index here.  Reshape the data arrays to remove grouping by image pairs
+        # Need to use the same number of blanks as source cutouts.
+        logging.debug("Loading data resulted in {} possible source cutouts.".format(source_cutouts.shape[0]))
+        logging.debug("Loading data resulted in {} possible blank cutouts.".format(blank_cutouts.shape[0]))
+        num_of_sets_to_use = min(blank_cutouts.shape[0], source_cutouts.shape[0])
+        logging.debug("This is how many cutouts we will use: {}".format(num_of_sets_to_use))
+        if num_of_sets_to_use < 1:
+            raise ValueError("Too little data for training.")
+        # image_cutouts_grouped_by_pair hold the image cutouts in an array with each element having shape 2xndimx2ndim
+        np.random.shuffle(source_cutouts)
+        np.random.shuffle(blank_cutouts)
+        image_cutouts = np.append(source_cutouts[0:num_of_sets_to_use],
+                                  blank_cutouts[0:num_of_sets_to_use], axis=0)
+        # tar_bin holds 1 for the source and 0 for the blank cutouts.
+        tar_bin = np.append(np.ones(num_of_sets_to_use), np.zeros(num_of_sets_to_use))
+        with open(f'{image_dir}.npy', 'wb') as f:
+            np.save(f,image_cutouts)
+            np.save(f,tar_bin)
     return md.train_test_split(image_cutouts, tar_bin, test_size=test_fraction)
 
 
-def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size=2):
+def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size=2,
+                  conv_node_list=[8, 16, 32, 64], dense_node_list=[128, 64], dropout_rate=0.25,
+                  optimizer='adam', loss='binary_crossentropy',
+                  k_reg=0.001, b_reg=0.001, a_reg=0.0001):
     """
     Get the CNN model used for the moving object detection process.
     :param channels: number of image cutouts packaged together, Currently we do image pairs.
     :param dimension: size, in pixels, of the image sections that will be provided.
     :param kernel_size: size, in pixels, of the Convolution kernel, 2 works well.
+    :param conv_node_list: list of node counts of conv2D layers. Default is [8, 16, 32, 64]
+    :param dense_node_list: list of node counts of dense layers. Default is [128, 64]
+    :param dropout_rate: the ratio of dropout. Default is 0.25.
+    :param optimizer: An optimizer is an algorithm to change weights and learning rate in order to reduce
+    the losses. Default is 'adam'.
+    :param loss: The error function to estimate the loss of the model so that the weights can be updated.
+    Default is binary_crossentropy.
+    :param k_reg, b_reg, a_reg: l2 regularization parameter ratio.
+    This applies to both Conv2D and Dense. k means kernel, b means bias, and a means activity.
+    The default is 0.001 for k and b, and 0.0001 for a.
     # Not clear why kernel_size = 2 is used, what is the theory?
     :return: output_array keras CNN model.
     :rtype Model
@@ -157,18 +184,18 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
     batch_normalize = False
     # Build a series of Conv2D layers starting with the main_input1 data.
     cnn = main_input1
-    for node_count in [8, 16, 32, 64]:
+    for node_count in conv_node_list:
         cnn = Conv2D(node_count, kernel_size=(kernel_size, kernel_size),
-                     activation='relu', padding='same', strides=(1, 1))(cnn)
+                     activation='relu', padding='same', strides=(1, 1),
+                     kernel_regularizer=l2(k_reg), bias_regularizer=l2(b_reg), activity_regularizer =l2(a_reg))(cnn)
         # Pull the nodes
         cnn = MaxPooling2D(pool_size=(kernel_size, kernel_size))(cnn)
-
         # batch normalize on alternate layers.
         if batch_normalize:
             cnn = BatchNormalization()(cnn)
+            batch_normalize = False
         else:
             batch_normalize = True
-
     # flatten the final Convolution layer to 1D.
     fc = Flatten(name='flat1')(cnn)
 
@@ -182,9 +209,10 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
     # your input vector to be zero with probability keep_prob.
     # output_array dropout layer does not have any trainable parameters.
     # Dropout technique is to prevent over fitting.
-    for node_count in [256, 64]:
-        fc = Dense(node_count, activation='relu')(fc)
-        fc = Dropout(0.25)(fc)
+    for node_count in dense_node_list:
+        fc = Dense(node_count, activation='relu',
+                   kernel_regularizer=l2(k_reg), bias_regularizer=l2(b_reg), activity_regularizer =l2(a_reg))(fc)
+        fc = Dropout(dropout_rate)(fc)
 
     # For the output_array layer, we can use either tanh or sigmoid.
     # The reason I use sigmoid (non-linear) function here is because it is a classification problem.
@@ -201,7 +229,7 @@ def get_cnn_model(channels=NUM_CHANNELS, dimension=CUTOUT_DIMENSION, kernel_size
     # It evaluates how well specific algorithm models the given data.
     # The third argument is a metric. I used only accuracy here.
     # The definition of accuracy is given in the later cells.
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
 
     # Display the summary of the model.
     logging.debug(model.summary())
@@ -266,8 +294,11 @@ def train_and_validate_the_model(model, training_data, training_classes, validat
                 plt.legend()
                 plt.show()
 
+
+    logging.warning('here we are')
+    
     history = model.fit(training_data, training_classes,
-                        validation_data=[validation_data, validation_classes],
+                        #validation_data=[validation_data, validation_classes],
                         shuffle=True,
                         epochs=epochs,
                         batch_size=batch_size,
@@ -285,17 +316,22 @@ def main(model_filename="trained_model.ker"):
     parser.add_argument('--epochs', help='How many training epochs to run?', default=50, type=int)
     parser.add_argument('plant_list_dir', help='Directory containing lists of planted sources in plantList format')
     parser.add_argument('image_dir', help='Directory containing images used to train the model.')
-    parser.add_argument('--file-pattern', help='Image files that match pattern will be used.', default='4,4/warp*.fits')
+    parser.add_argument('--file-pattern', help='Image files that match pattern will be used.', default='warp*.fits')
     parser.add_argument('--test-fraction', help='Fraction of the model used to validate with.', default=0.3,
                         type=float)
     parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
     parser.add_argument('--cutout-dimension', help='size, in pixels, of cutouts dimension to work with', type=int,
                         default=CUTOUT_DIMENSION)
     parser.add_argument('--plant-mag-limit', help='faintest planted source to using in training', default=25)
+    parser.add_argument('--kernel-size', help='size of convolution kernels', default=2, type=int)
+    parser.add_argument('--conv-node-list', help='list of counts of convolution layers nodes', type=int, nargs='+', default=[8, 16, 32, 64])
+    parser.add_argument('--dense-node-list', help='list of counts of dense layers nodes', type=int, nargs='+', default=[128,64])
+    parser.add_argument('--dropout-rate', help='ratio of dropout after a dense layer', type=int, default=0.25)
+    parser.add_argument('--optimizer', help='algorithm to change weights and learning rate', type=str, default='Adam')
 
     args = parser.parse_args()
     log_levels = {'DEBUG': logging.DEBUG, 'INFO': logging.INFO, 'ERROR': logging.ERROR}
-    logging.basicConfig(level=log_levels[args.log_level])
+    logging.getLogger().setLevel(log_levels[args.log_level])
     logging.info("Building input dataset for training.")
 
     training_data, validation_data, training_classes, validation_classes = \
@@ -308,9 +344,16 @@ def main(model_filename="trained_model.ker"):
                                           planted_list_dir=args.plant_list_dir,
                                           num_per_pair=args.num_per_pair,
                                           size=args.cutout_dimension,
-                                          plant_mag_limit=args.plant_mag_limit)
+                                          plant_mag_limit=args.plant_mag_limit,
+                                          data_name='training_set.npy')
     logging.info("Constructing the model framework.")
-    model = get_cnn_model(channels=args.num_per_pair, dimension=args.cutout_dimension)
+    model = get_cnn_model(channels=args.num_per_pair,
+                          dimension=args.cutout_dimension,
+                          kernel_size=args.kernel_size,
+                          node_count_list=args.conv_node_list,
+                          dense_node_list=args.dense_node_list,
+                          dropout_rate=args.dropout_rate,
+                          optimizer=args.optimizer)
     logging.info("Training the model.")
     history = train_and_validate_the_model(model, training_data, training_classes,
                                            validation_data, validation_classes, epochs=args.epochs)
@@ -319,6 +362,6 @@ def main(model_filename="trained_model.ker"):
     model.save(f'{args.cutout_dimension}_{args.num_per_pair}_{model_filename}')
     return
 
-
+    
 if __name__ == '__main__':
     sys.exit(main())
