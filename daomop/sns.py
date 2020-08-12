@@ -366,7 +366,7 @@ def main():
     parser.add_argument('--rectify', action='store_true', help="Rectify images to WCS of reference, otherwise "
                                                                "images must be on same grid before loading.")
     parser.add_argument('--mask', action='store_true', help='set masked pixels to nan before shift/stack')
-    parser.add_argument('--n-sub-stacks', default=3, help='How many sub-stacks should we produce')
+    parser.add_argument('--n-sub-stacks', default=3, type=int, help='How many sub-stacks should we produce')
     parser.add_argument('--rate-min', type=float, default=1, help='Minimum shift rate ("/hr)')
     parser.add_argument('--rate-max', type=float, default=5, help='Maximum shift rate ("/hr)')
     parser.add_argument('--rate-step', type=float, default=0.25, help='Step-size for shift rate ("/hr)')
