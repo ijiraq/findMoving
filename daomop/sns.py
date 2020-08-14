@@ -378,6 +378,7 @@ def main():
     parser.add_argument('--section-size', type=int, default=1024,
                         help='Break images into section when stacking (conserves memory)')
     parser.add_argument('--masked', action='store_true', help='pattern match: DIFF*{ccd}*_masked.fits')
+    parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
@@ -431,17 +432,31 @@ def main():
         with fits.open(image) as hdu:
             mjds.append(time.Time(mid_exposure_mjd((hdu[0]))))
     ind = np.argsort(mjds)
-    reference_idx = int(len(ind)//2)
+    # sort the images by mjd
     images = images[ind]
-    reference_hdu = fits.open(images[reference_idx])
-    reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
-    logging.debug(f'Will use {reference_filename} as base name for storage.')
-    logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
 
     # do the stacking in groups of images as set from the CL.
     for index in range(args.n_sub_stacks):
-        sub_images = images[index::args.n_sub_stacks]
+        if not args.group:
+            # stride the image list
+            sub_images = images[index::args.n_sub_stacks]
+            reference_idx = int(len(images) // 2)
+        else:
+            # group images by time
+            start_idx = len(images)//args.n_sub_stacks*index
+            start_idx = int(max(0, start_idx))
+            end_idx = len(images)//args.n_sub_stacks*(index+1)
+            end_idx = int(min(len(images), end_idx))
+            sub_images = images[start_idx:end_idx]
+            reference_idx = int(len(sub_images) // 2)
+
         hdus = [fits.open(image) for image in sub_images]
+
+        # set the reference image
+        reference_hdu = hdus[reference_idx]
+        reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
+        logging.debug(f'Will use {reference_filename} as base name for storage.')
+        logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
 
         if not args.swarp and args.rectify:
             # Need to project all images to same WCS before passing to stack.
