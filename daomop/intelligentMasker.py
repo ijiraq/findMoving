@@ -139,14 +139,20 @@ def main():
         for i in w[0]:
             ix, iy = int(ref_catalog['XWIN_IMAGE'][i])+cut_width, int(ref_catalog['YWIN_IMAGE'][i])+cut_width
             if not 0 < ix-cut_width < MAX_B or not 0 < iy-cut_width < MAX_A+cut_width:
-                logging.warning("SEX gave a star outside the image: {ref_catalog[i]}")
+                logging.warning(f'SEX gave a star outside the image {corr_fn}')
                 continue
             cutout = exp_data[iy-half_cut_width:iy+half_cut_width+1, ix-half_cut_width:ix+half_cut_width+1]
             (a, b) = cutout.shape
             logging.debug(f'Extracting shape of {a},{b} around {ix},{iy}')
             vals.append(cutout.reshape(a*b))
 
-        med_vals = np.nanmedian(vals, axis=0)
+        try:
+            med_vals = np.nanmedian(vals, axis=0)
+        except Exception as ex:
+            logging.error(f'{corr_fn}: {ex}')
+            logging.warning(f'pinning the variance for {mag_range[0]},{mag_range[1]} to 0')
+            med_vals = 0.0
+
         trim_w = np.where(np.abs(med_vals) > abs_upper_limit)
         if len(trim_w[0]) > 0:
             trim_radius = np.max(r_reshape[trim_w])
@@ -180,7 +186,7 @@ def main():
             for i in w[0]:
                 ix, iy = int(ref_catalog['XWIN_IMAGE'][i])+cut_width, int(ref_catalog['YWIN_IMAGE'][i])+cut_width
                 if not 0 < ix-cut_width < MAX_B or not 0 < iy-cut_width < MAX_A+cut_width:
-                    logging.warning("SEX gave a star outside the image: {ref_catalog[i]}")
+                    logging.warning(f'SEX gave a star outside the image: {corr_fn}')
                     continue
                 cutout = exp_data[iy-half_cut_width:iy+half_cut_width+1, ix-half_cut_width:ix+half_cut_width+1]
                 cutout[trim_w] = np.nan
