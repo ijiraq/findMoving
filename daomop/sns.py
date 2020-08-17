@@ -497,9 +497,6 @@ def main():
                                 args.angle_min, args.angle_max, args.angle_step):
             dra = rate['rate']*np.cos(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
             ddec = rate['rate']*np.sin(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
-            output_filename = f'STACK-{reference_filename}-{index:02d}-' \
-                              f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
-            output_filename = os.path.join(output_dir, output_filename)
             if os.access(output_filename, os.R_OK):
                 logging.warning(f'{output_filename} exists, skipping')
                 continue
@@ -514,6 +511,12 @@ def main():
             output[0].header['ANGLE'] = (rate['angle'], 'degree')
             output[0].header['DRA'] = (dra.value, str(dra.unit))
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
+            int_rate = int(rate["rate"]*10)
+            int_angle = int((rate['angle'] % 360)*10)
+            expnum = f'{int(args.pointing)}{int_rate:02d}{int_angle:04d}{index}'
+            output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
+            output_filename = f'{expnum}p{args.ccd:03d}.fits'
+            output_filename = os.path.join(output_dir, output_filename)
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
             output.writeto(output_filename)
