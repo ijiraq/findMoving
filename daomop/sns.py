@@ -404,6 +404,9 @@ def main():
         filename_pattern = f'DIFF*-{ccd}_masked.fits'
     else:
         filename_pattern = f'DIFF*_{ccd}.fits'
+    rates = shift_rates(args.rate_min, args.rate_max, args.rate_step,
+                        args.angle_min, args.angle_max, args.angle_step)
+    logging.info(f'Shift-and-Stacking the following list of rate/angle pairs: {[(rate["rate"],rate["angle"]) for rate in rates]}')
 
     input_dir = os.path.join(args.basedir, 'rerun', input_rerun, args.exptype,
                              args.pointing, args.filter, filename_pattern)
@@ -493,8 +496,7 @@ def main():
                 hdu[HSC_HDU_MAP['variance']].data = mask_as_nan(hdu[HSC_HDU_MAP['variance']].data,
                                                                 hdu[HSC_HDU_MAP['mask']].data)
 
-        for rate in shift_rates(args.rate_min, args.rate_max, args.rate_step,
-                                args.angle_min, args.angle_max, args.angle_step):
+        for rate in rates:
             dra = rate['rate']*np.cos(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
             ddec = rate['rate']*np.sin(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
             int_rate = int(rate["rate"]*10)
@@ -518,6 +520,7 @@ def main():
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             output[0].header['CCDNUM'] = (args.ccd, 'CCD NUMBER or DETSER')
             output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
+            output[0].header['ASTLEVEL'] = 1
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
             output.writeto(output_filename)
