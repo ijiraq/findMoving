@@ -26,39 +26,38 @@ filter="HSC-R2"
 exptype="deepDiff"
 chip=$(echo ${ccd} | awk '{printf("%03d",$1)}')
 
-for tarfile in $(vls ${vosbase}/${source}/${pointing}/DIFF*${chip}*)
-do 
-    vopath=${vosbase}/${source}/${pointing}/${tarfile} 
-    echo "copying ${vopath} to ${tarfile}"
-    mcp ${vopath} ./${tarfile} || exit
-    tar xvf ${tarfile} && rm ${tarfile} || exit
-    echo "Stacking 100x100 pixel box around ${ra} ${dec} at rate: ${rate} angle: ${angle}"
-    daomop-sns  ${basedir} \
-		--pointing ${pointing} \
-		--rerun ${input}:${output} \
-		--filter HSC-R2 --ccd ${ccd} \
-		--log-level INFO \
-		--group \
-		--centre ${ra} ${dec} \
-		--angle-min ${angle} \
-		--angle-max ${angle} \
-		--angle-step 1 \
-		--rate-min ${rate} \
-		--rate-step 1 \
-		--rate-max ${rate} \
-		--section-size 100 \
-		--clip 8
+tarfile=$(vls "${vosbase}/${source}/${pointing}/DIFF*${chip}*")
+vopath=${vosbase}/${source}/${pointing}/${tarfile} 
+echo "copying ${vopath} to ${tarfile}"
+mcp ${vopath} ./${tarfile} || exit
+tar xvf ${tarfile} && rm ${tarfile} || exit
+echo "Stacking 100x100 pixel box around ${ra} ${dec} at rate: ${rate} angle: ${angle}"
+daomop-sns  ${basedir} \
+	    --pointing ${pointing} \
+	    --rerun ${input}:${output} \
+	    --filter HSC-R2 --ccd ${ccd} \
+	    --log-level INFO \
+	    --group \
+	    --centre ${ra} ${dec} \
+	    --angle-min ${angle} \
+	    --angle-max ${angle} \
+	    --angle-step 1 \
+	    --rate-min ${rate} \
+	    --rate-step 1 \
+	    --rate-max ${rate} \
+	    --section-size 100 \
+	    --clip 8
 
-    echo "Copying stacks to ${dbimages}"
-    for stack in ${basedir}/rerun/${input}/${exptype}/${pointing}/${filter}/*.fits
-    do
-	expnum=$(basename ${stack} | awk -Fp '{printf("%s",$1)}')
-	ccd=$(basename ${stack} | awk -Fp '{printf("%s",$2)}')
-	ccd=$(echo {ccd%.fits} | awk ' {printf("ccd$02d", $1)}')
-	vmkdir -p ${dbimages}/${expnum}/${ccd} || exit
-	mcp ${stack} ${dbimages}/${expnum}/${ccd}/ || exit
-    done
-
-    echo "Cleaning up the DIFFs"
-    rm ${basedir}/rerun/${output}/${exptype}/${pointing}/${filter}/DIFF*${ccd}* || exit
+echo "Copying stacks to ${dbimages}"
+for stack in ${basedir}/rerun/${output}/${exptype}/${pointing}/${filter}/*.fits
+do
+    expnum=$(basename ${stack} | awk -Fp '{printf("%s",$1)}')
+    ccd=$(basename ${stack} | awk -Fp '{printf("%s",$2)}')
+    ccd=$(echo ${ccd%.fits} | awk -Fp '{printf("ccd%02d", $1)}')
+    vmkdir -p ${dbimages}/${expnum}/${ccd} || exit
+    mcp ${stack} ${dbimages}/${expnum}/${ccd}/ || exit
 done
+
+echo "Cleaning up the DIFFs"
+rm ${basedir}/rerun/${input}/${exptype}/${pointing}/${filter}/DIFF*${ccd}* || exit
+
