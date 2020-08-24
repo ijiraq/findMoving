@@ -4,12 +4,15 @@ source ${HOME}/.profile
 wd=$(pwd)
 
 # Update the software, if needed
+if [ ! -true ] 
+then
 cd ${HOME}/findMoving
 git remote update
 [ "$(git rev-parse master)" != "$(git rev-parse origin/master)" ] && git pull && python3 setup.py install --user 
 export DAOMOP_VERSION=$(git rev-parse master)
 echo ${DAOMOP_VERSION}
 cd ${wd}
+fi
 
 function mcp {
     loop_counter=0
@@ -65,13 +68,15 @@ sudo mkdir -p /mnt/${basedir} && sudo chown -R jkavelaars /mnt/${basedir} && ln 
 echo "# uri:${vos_uri} pointing:${pointing} chip:${chip} amin:${angle_min} astep:${angle_step} amax:${angle_max} rmin:${rate_min} rstep:${rate_step} rmax:${rate_max}"
 sync=$(which daomop-filesync.sh)
 
-echo "Scheduling CRON to copy files to VOSPACE"
-cron_file=/tmp/${RANDOM}
-crontab -l > ${cron_file}
+#echo "Scheduling CRON to copy files to VOSPACE"
+#cron_file="/tmp/${RANDOM}"
+#crontab -l > ${cron_file}
 cmd="0 * * * * SHELL=/bin/bash && ${sync} $(pwd)/${basedir} ${dbimages} ${pointing} >> $HOME/sync.out 2>&1"
-grep -q ${cmd} ${cron_file} ||  echo ${cmd} >> ${cron_file}
-crontab ${cron_file}
-crontab -l
+echo ${cmd}
+#[ -f ${cron_file} ] || echo ${cmd} >> ${cron_file}
+#[ -f ${cron_file} ] && grep ${cmd} ${cron_file}  ||  echo ${cmd} >> ${cron_file}
+#crontab ${cron_file}
+#crontab -l
 
 daomop-sns ${basedir} \
 	   --group \
@@ -86,7 +91,6 @@ daomop-sns ${basedir} \
 	   --ccd ${chip} \
 	   --mask \
 	   --section-size 1200 \
-	   --masked \
    	   --clip 8 \
 	   --log-level INFO 
 
