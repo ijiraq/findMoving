@@ -403,7 +403,7 @@ def main():
     if args.masked:
         filename_pattern = f'DIFF*-{ccd}_masked.fits'
     else:
-        filename_pattern = f'DIFF*_{ccd}.fits'
+        filename_pattern = f'DIFF*-{ccd}.fits'
     rates = shift_rates(args.rate_min, args.rate_max, args.rate_step,
                         args.angle_min, args.angle_max, args.angle_step)
     logging.info(f'Shift-and-Stacking the following list of rate/angle pairs: {[(rate["rate"],rate["angle"]) for rate in rates]}')
