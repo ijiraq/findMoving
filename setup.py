@@ -11,6 +11,7 @@ setup(
     packages=find_packages(),
     scripts=['scripts/daomop-stack-cmd',
              'scripts/daomop-run-sns.sh',
+             'scripts/daomop-target-sns.sh',
              'scripts/daomop-filesync.sh'],
     entry_points={
         "console_scripts": [

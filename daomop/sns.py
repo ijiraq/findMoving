@@ -458,48 +458,22 @@ def main():
             reference_idx = int(len(sub_images) // 2)
 
         hdus = [fits.open(image) for image in sub_images]
-
+                        
         # set the reference image
         reference_hdu = hdus[reference_idx]
         reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         logging.debug(f'Will use {reference_filename} as base name for storage.')
         logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
-
-        if not args.swarp and args.rectify or args.centre is not None:
+                        
+            
+        if not args.swarp and args.rectify:
             # Need to project all images to same WCS before passing to stack.
             logging.info('Swarp-ing the input images to a common projection and reference frame.')
             swarps = swarp(hdus, reference_hdu, None)
-            if args.centre is not None:
-                position = SkyCoord(args.centre[0], args.centre[1], unit='degree')
-                images = [Cutout2D(data=swarped.data,
-                                   position=position,
-                                   size=args.section_size,
-                                   wcs=WCS(swarped.header),
-                                   mode='partial', fill_value=np.nan)
-                          for swarped in swarps]
-                wcs_headers = [image.wcs.to_header() for image in images]
-                images = [image.data for image in images]
-                for idx, swarped in enumerate(swarps):
-                    for key in wcs_headers[idx]:
-                        swarped.header[key] = wcs_headers[idx][key]
-                headers = [swarped.header for swarped in swarps]
-                masks = [mask.data for mask in [Cutout2D(data=swarped.mask,
-                                                         position=position,
-                                                         size=args.section_size,
-                                                         wcs=WCS(swarped.header),
-                                                         mode='partial', fill_value=np.nan)
-                                                for swarped in swarps]]
-                variances = [variance.data for variance in [Cutout2D(data=swarped.uncertainty,
-                                                                     position=position,
-                                                                     size=args.section_size,
-                                                                     wcs=WCS(swarped.header),
-                                                                     mode='partial', fill_value=np.nan)
-                                                            for swarped in swarps]]
-            else:
-                images = [swarped.data for swarped in swarps]
-                masks = [swarped.mask for swarped in swarps]
-                headers = [swarped.header for swarped in swarps]
-                variances = [swarped.uncertainty for swarped in swarps]
+            images = [swarped.data for swarped in swarps]
+            masks = [swarped.mask for swarped in swarps]
+            headers = [swarped.header for swarped in swarps]
+            variances = [swarped.uncertainty for swarped in swarps]
 
             for idx in range(len(images)):
                 hdus[idx][1].data = images[idx]
@@ -507,6 +481,25 @@ def main():
                 hdus[idx][2].data = masks[idx]
                 hdus[idx][3].data = variances[idx]
 
+        if args.centre is not None:
+            centre = SkyCoord(args.centre[0], args.centre[1], unit='degree')
+            box_size = args.section_size//2
+            logging.debug(f'Extracting box of 1/2 widht {box_size} pixels around {centre}')
+            for hdu in hdus:
+                w = WCS(hdu[1].header)
+                x, y = w.all_world2pix(args.centre[0], args.centre[1], 0)
+                logging.debug(f'{centre} -> {x},{y}')
+                x1 = int(max(0, x - box_size))
+                x2 = int(min(hdu[1].header['NAXIS1'], x1 + 2*box_size ))
+                y1 = int(max(0, y - box_size))
+                y2 = int(min(hdu[1].header['NAXIS2'], y1 + 2*box_size))
+                logging.debug(f'{hdu[0].header["FRAMEID"]} -> [{y1}:{y2},{x1}:{x2}]')
+                for idx in range(1,4):
+                    hdu[idx].data = hdu[idx].data[y1:y2,x1:x2]
+                    hdu[idx].header['CRPIX1'] -= x1
+                    hdu[idx].header['CRPIX2'] -= y2
+
+                
         if args.clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
             # mask pixels that are both high-variance AND part of a detected source.
@@ -545,7 +538,7 @@ def main():
                 continue
             output = stack_function(hdus, reference_hdu, {'dra': dra, 'ddec': ddec},
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
-            logging.debug(f'Got stack result {output}')
+            logging.debug(f'Got stack result {output}, writing to {output_filename}')
             # Keep a history of which visits when into the stack.
             output[0].header['SOFTWARE'] = f'{__name__}-{__version__}'
             output[0].header['NCOMBINE'] = (len(hdus), 'Number combined')
