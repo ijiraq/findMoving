@@ -7,10 +7,12 @@ import sys
 
 import numpy as np
 from astropy import time, units
+from astropy.coordinates import SkyCoord
 from astropy.io import fits
-from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
+from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask, Cutout2D
 from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
+
 from . import util
 from .version import __version__
 
@@ -377,6 +379,8 @@ def main():
                         help='Mask pixel whose variance is clip times the median variance')
     parser.add_argument('--section-size', type=int, default=1024,
                         help='Break images into section when stacking (conserves memory)')
+    parser.add_argument('--centre', default=None, help="only stack data around this RA/DEC (decimal degree) centre",
+                        nargs=2, type=float)
     parser.add_argument('--masked', action='store_true', help='pattern match: DIFF*{ccd}*_masked.fits')
     parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
 
@@ -461,15 +465,47 @@ def main():
         logging.debug(f'Will use {reference_filename} as base name for storage.')
         logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
 
-        if not args.swarp and args.rectify:
+        if not args.swarp and args.rectify or args.centre is not None:
             # Need to project all images to same WCS before passing to stack.
             logging.info('Swarp-ing the input images to a common projection and reference frame.')
-            swarped = swarp(hdus, reference_hdu, None)
-            for idx in range(len(swarped)):
-                hdus[idx][1].data = swarped[idx].data
-                hdus[idx][1].header = swarped[idx].header
-                hdus[idx][2].data = swarped[idx].mask
-                hdus[idx][3].data = swarped[idx].uncertainty
+            swarps = swarp(hdus, reference_hdu, None)
+            if args.centre is not None:
+                position = SkyCoord(args.centre[0], args.centre[1], unit='degree')
+                images = [Cutout2D(data=swarped.data,
+                                   position=position,
+                                   size=args.section_size,
+                                   wcs=WCS(swarped.header),
+                                   mode='partial', fill_value=np.nan)
+                          for swarped in swarps]
+                wcs_headers = [image.wcs.to_header() for image in images]
+                images = [image.data for image in images]
+                for idx, swarped in enumerate(swarps):
+                    for key in wcs_headers[idx]:
+                        swarped.header[key] = wcs_headers[idx][key]
+                headers = [swarped.header for swarped in swarps]
+                masks = [mask.data for mask in [Cutout2D(data=swarped.mask,
+                                                         position=position,
+                                                         size=args.section_size,
+                                                         wcs=WCS(swarped.header),
+                                                         mode='partial', fill_value=np.nan)
+                                                for swarped in swarps]]
+                variances = [variance.data for variance in [Cutout2D(data=swarped.uncertainty,
+                                                                     position=position,
+                                                                     size=args.section_size,
+                                                                     wcs=WCS(swarped.header),
+                                                                     mode='partial', fill_value=np.nan)
+                                                            for swarped in swarps]]
+            else:
+                images = [swarped.data for swarped in swarps]
+                masks = [swarped.mask for swarped in swarps]
+                headers = [swarped.header for swarped in swarps]
+                variances = [swarped.uncertainty for swarped in swarps]
+
+            for idx in range(len(images)):
+                hdus[idx][1].data = images[idx]
+                hdus[idx][1].header = headers[idx]
+                hdus[idx][2].data = masks[idx]
+                hdus[idx][3].data = variances[idx]
 
         if args.clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
