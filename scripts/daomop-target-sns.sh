@@ -45,7 +45,7 @@ daomop-sns  ${basedir} \
 	    --rate-min ${rate} \
 	    --rate-step 1 \
 	    --rate-max ${rate} \
-	    --section-size 100 \
+	    --section-size 250 \
 	    --clip 8
 
 echo "Copying stacks to ${dbimages}"
