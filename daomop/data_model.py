@@ -330,7 +330,7 @@ def build_table_of_planted_sources(plant_list_directory, pattern='*.plantList', 
 
 def plot(source_cutout, source_cutout_target):
     """
-    Make a sky plot of the two image chunks in the source cutout and display for user.
+    Make a sky_inner_radius plot of the two image chunks in the source cutout and display for user.
 
     :param source_cutout: a single source cutout entry as returned from data_model.cut
     :param source_cutout_target: a single source cutout target entry as returned from data_model.cut
