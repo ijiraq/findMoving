@@ -490,16 +490,18 @@ def main():
                 x, y = w.all_world2pix(args.centre[0], args.centre[1], 0)
                 logging.debug(f'{centre} -> {x},{y}')
                 x1 = int(max(0, x - box_size))
-                x2 = int(min(hdu[1].header['NAXIS1'], x1 + 2*box_size ))
+                x2 = int(min(hdu[1].header['NAXIS1'], x1 + 2*box_size))
+
                 y1 = int(max(0, y - box_size))
                 y2 = int(min(hdu[1].header['NAXIS2'], y1 + 2*box_size))
                 logging.debug(f'{hdu[0].header["FRAMEID"]} -> [{y1}:{y2},{x1}:{x2}]')
                 for idx in range(1,4):
-                    hdu[idx].data = hdu[idx].data[y1:y2,x1:x2]
+                    hdu[idx].data = hdu[idx].data[y1:y2, x1:x2]
+                    hdu[idx].header['XOFFSET'] = x1
+                    hdu[idx].header['YOFFSET'] = y1
                     hdu[idx].header['CRPIX1'] -= x1
-                    hdu[idx].header['CRPIX2'] -= y2
+                    hdu[idx].header['CRPIX2'] -= y1
 
-                
         if args.clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
             # mask pixels that are both high-variance AND part of a detected source.
@@ -549,6 +551,7 @@ def main():
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             output[0].header['CCDNUM'] = (args.ccd, 'CCD NUMBER or DETSER')
             output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
+            output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0].header), "MJD MID Exposure")
             output[0].header['ASTLEVEL'] = 1
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
