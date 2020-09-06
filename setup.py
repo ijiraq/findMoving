@@ -13,9 +13,12 @@ setup(
              'scripts/daomop-run-sns.sh',
              'scripts/daomop-target-sns.sh',
              'scripts/daomop-filesync.sh'],
+    package_data={'daomop': ['*.json']},
     entry_points={
         "console_scripts": [
             "daomop-sns = daomop.sns:main",
+            "daomop-measure = daomop.measure_kbo:run",
+            "daomop-predict-obs = daomop.predict_obs:run",
             "daomop-train-cnn = daomop.train_model:main",
             "daomop-build-plant-db = daomop.build_plant_list_db:main",
             "daomop-intelligentMasker = daomop.intelligentMasker:main",

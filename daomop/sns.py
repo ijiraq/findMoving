@@ -532,10 +532,11 @@ def main():
                         data = np.ones((y2-y1+1)*(x2-x1+1))*np.nan
                         data.shape = y2-y1+1, x2-x1+1
                     hdu[idx].data = data
+                    hdu[idx].header['XOFFSET'] = x1
+                    hdu[idx].header['YOFFSET'] = y1
                     hdu[idx].header['CRPIX1'] -= x1
                     hdu[idx].header['CRPIX2'] -= y1
 
-                
         if args.clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
             # mask pixels that are both high-variance AND part of a detected source.
@@ -585,6 +586,7 @@ def main():
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             output[0].header['CCDNUM'] = (args.ccd, 'CCD NUMBER or DETSER')
             output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
+            output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0].header), "MJD MID Exposure")
             output[0].header['ASTLEVEL'] = 1
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)

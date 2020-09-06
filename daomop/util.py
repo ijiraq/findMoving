@@ -1,4 +1,5 @@
 import argparse
+import logging
 
 base_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                       fromfile_prefix_chars='@',
@@ -6,13 +7,36 @@ base_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsH
 base_parser.add_argument('basedir', help="Root directory of LSST pipelined data")
 base_parser.add_argument('--pointing', help="Which pointing to process, eg. 03071", default=None)
 base_parser.add_argument('--field', help='Which FIELD to process', choices=['NHF1', 'NHF2'], default=None)
-base_parser.add_argument('--patch', help="sky patch to process (e.g. 0,0)", nargs=1)
+base_parser.add_argument('--patch', help="sky_inner_radius patch to process (e.g. 0,0)", nargs=1)
 base_parser.add_argument('--rerun', help="rerun directory containing the warped difference images.", nargs=1)
 base_parser.add_argument('--filter', help="Filter to stack", default="HSC-R2")
 base_parser.add_argument('--visit', type=int, help='visit to process.', default=None)
 base_parser.add_argument('--ccd', help="Which CCD to stack?", type=int, default=None)
 base_parser.add_argument('--log-level', help="What level to log at? (ERROR, INFO, DEBUG)", default="ERROR",
                          choices=['INFO', 'ERROR', 'DEBUG'])
+
+
+def get_provisional_name(pointing, ccd, index, **kwargs):
+    logging.debug(f"{pointing} {ccd} {index} {kwargs}")
+    value = int(f"{ccd:03d}{index:04d}")
+    return f"P{str(pointing)[-2:]:2s}{hex(value)[2:]:4s}"
+
+
+def from_provisional_name(p_name):
+    if p_name[3] == 'x':
+        index = int(f'0{p_name[3:]}', base=16)
+        ccd = None
+    else:
+        _value = str(int(f'0x{p_name[-5:]}', base=16))
+        ccd = _value[0:2]
+        index = _value[2:2+4]
+
+    if p_name[0] == "P":
+        pointing = f"030{p_name[1:3]}"
+    else:
+        pointing = f"031{p_name[1:3]}"
+
+    return pointing, ccd, index
 
 
 def parse_rerun(rerun):
