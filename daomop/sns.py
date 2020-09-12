@@ -425,9 +425,6 @@ def main():
     parser.add_argument('--centre', default=None, help="only stack data around this RA/DEC (decimal degree) centre",
                         nargs=2, type=float)
     parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
-    parser.add_argument('--centre', default=None, help="only stack data around this RA/DEC (decimal degree) centre",
-                        nargs=2, type=float)
-    parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
