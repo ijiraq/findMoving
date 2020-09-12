@@ -175,6 +175,36 @@ def up_sample_2d(output_array, input_array, rf):
 def frameid(hdu):
     return hdu[0].header['FRAMEID']
 
+def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
+    logging.debug(f'Compute x/y shifts from : {rx},{ry} scaled by {rf} and mid_mjd: {mid_mjd}')
+    w = WCS(hdu[1].header)
+    dra = (rx*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
+    ddec = (ry*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
+    logging.debug(f'Working on array {hdu[0]} of size '
+                  f'{hdu[1].data.shape} and shifting by '
+                  f'dx {dra} and dy {ddec}')
+    # Use the WCS to determine the x/y shit to allow for different ccd orientations.
+    xc = hdu[1].data.shape[1]/2.0
+    yc = hdu[1].data.shape[0]/2.0
+    sky_ra, sky_dec = w.wcs_pix2world(xc, yc, 0)
+    sky_coord = sky_ra, sky_dec
+    logging.debug(f'Centre of the CCD is {sky_coord}')
+    # Add offset needed to align the corner of the image with the reference image.
+    dra -= (ref_skycoord[0] - sky_coord[0])*units.degree
+    ddec -= (ref_skycoord[1] - sky_coord[1])*units.degree
+    _x, _y = w.wcs_world2pix(sky_coord[0], sky_coord[1], 0)
+    c1 = _x, _y
+    _x, _y = w.wcs_world2pix(sky_coord[0]+dra.to('degree').value,
+                             sky_coord[1]+ddec.to('degree').value, 0)
+    c2 = _x, _y
+    dx = int(rf*(c2[0]-c1[0]))
+    dy = int(rf*(c2[1]-c1[1]))
+    logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
+    return dx, dy
+
+    # Weight by the variance. 
+    # up_sample_2d(scaled_images[frameid(hdu)], hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf)
+
 
 def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024):
     """
@@ -210,7 +240,13 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     # putt a padding box around our image to account for the maximum object shear
     # between the first and final image (which are about 4 hours apart)
     # padding = ((rx.to('arcsec/hour').value)**2+(ry.to('arcsec/hour').value)**2)*4.0/0.15
-    padding = 200
+    padding = {'low': {'x': 0, 'y': 0}, 'high': {'x': 0, 'y': 0}}
+    for hdu in hdus:
+        dx, dy = compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord)
+        padding['low']['x'] = min(dx-1, padding['low']['x'])
+        padding['low']['y'] = min(dy+1, padding['low']['y'])
+        padding['high']['x'] = max(dx-1, padding['high']['x'])
+        padding['high']['y'] = max(dy+1, padding['high']['y'])
     # setup the space to store the scaled up image and variance
     # scaled_images = {}
     # scaled_variances = {}
@@ -222,16 +258,16 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
         # but we need y1,y2 range of data to come from input to allow for 
         # shifting of pixel boundaries.
         yo = int(yo)
-        y1 = int(max(0, yo-padding))
+        y1 = int(max(0, yo+padding['low']['y']))
         yp = int(min(image_array.shape[0], yo+section_size))
-        y2 = int(min(image_array.shape[0], yp+padding))
+        y2 = int(min(image_array.shape[0], yp+padding['high']['y']))
         yl = yo - y1
         yu = yl + yp - yo 
         for xo in x_section_grid:
             xo = int(xo)
-            x1 = int(max(0, xo-padding))
+            x1 = int(max(0, xo+padding['low']['x']))
             xp = int(min(image_array.shape[1], xo+section_size))
-            x2 = int(min(image_array.shape[1], xp+padding))
+            x2 = int(min(image_array.shape[1], xp+padding['high']['x']))
             xl = xo - x1
             xu = xl + xp - xo
             logging.debug(f'Taking section {y1,y2,x1,x2} shifting, '
@@ -243,32 +279,8 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             for hdu in hdus:
                 # compute the x and y shift for image at this time and scale the size of shift for the
                 # scaling factor of this shift.
-                logging.debug(f'Adding exposure taken at {mid_exposure_mjd(hdu[0]).isot}')
-                w = WCS(hdu[1].header)
-                dra = (rx*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
-                ddec = (ry*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
-                logging.debug(f'Working on array {hdu[0]} of size '
-                              f'{hdu[1].data.shape} and shifting by '
-                              f'dx {dra} and dy {ddec}')
-                # Use the WCS to determine the x/y shit to allow for different ccd orientations.
-                xc = hdu[1].data.shape[1]/2.0
-                yc = hdu[1].data.shape[0]/2.0
-                sky_ra, sky_dec = w.wcs_pix2world(xc, yc, 0)
-                sky_coord = sky_ra, sky_dec
-                logging.debug(f'Corner of the FOV is {sky_coord}')
-                # Add offset needed to align the corner of the image with the reference image.
-                dra -= (ref_skycoord[0] - sky_coord[0])*units.degree
-                ddec -= (ref_skycoord[1] - sky_coord[1])*units.degree
-                _x, _y = w.wcs_world2pix(sky_coord[0], sky_coord[1], 0)
-                c1 = _x, _y
-                _x, _y = w.wcs_world2pix(sky_coord[0]+dra.to('degree').value,
-                                         sky_coord[1]+ddec.to('degree').value, 0)
-                c2 = _x, _y
-                dx = int(rf*(c2[0]-c1[0]))
-                dy = int(rf*(c2[1]-c1[1]))
-                if math.fabs(dx) > padding or math.fabs(dy) > padding:
-                    logging.warning(f'Skipping {hdu[0].header.get("FRAMEID", "Unknown")} due to large offset {dx},{dy}')
-                    continue
+                logging.debug(f'Adding exposure taken at {mid_exposure_mjd(hdu[0]).isot} reference from {mid_mjd.isot}')
+                dx, dy = compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord)
                 logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
 
                 # Weight by the variance. 
