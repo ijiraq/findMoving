@@ -31,18 +31,10 @@ echo "Getting DIFFS and making MASKED version"
 mcp "${vos_uri}/psf_fwhm.txt" ./
 
 # pull the DIFF tar ball if _masked didn't exist for this CCD from DIFFS/pointing directory on VOSpace.
-n_diffs=$(ls ${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}/DIFFEXP-*-${ccd}* | wc -l)
-if [ ${n_diffs} -lt "20" ] 
-then
-   mcp "${vos_uri}/DIFFS/${pointing}/DIFF-${ccd}.*" ./  && tar xvf DIFF-${ccd}.* && rm DIFF-${ccd}.*  || exit
-fi
+mcp "${vos_uri}/DIFFS/${pointing}/DIFF-${ccd}.*" ./  && tar xvf DIFF-${ccd}.* && rm DIFF-${ccd}.*  || exit
 
 # pull the CORR tar ball for this CCD from DIFFS/pointing directory on VOSpace.
-n_diffs=$(ls ${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}/DIFFEXP-*-${ccd}* | wc -l)
-if [ ${n_diffs} -lt "20" ] 
-then 
-   mcp "${vos_uri}/CORR/${pointing}/CORR-${ccd}.*" ./ && tar xvf CORR-${ccd}.* && rm CORR-${ccd}.*  || exit
-fi
+mcp "${vos_uri}/CORR/${pointing}/CORR-${ccd}.*" ./ && tar xvf CORR-${ccd}.* && rm CORR-${ccd}.*  || exit
 # for the MAY data the plant directory was the process directory.
 
 # Build the MASKED versions of the files.
