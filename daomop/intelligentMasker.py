@@ -1,11 +1,12 @@
 import argparse
-import os
-import tempfile
-import numpy as np
-from matplotlib import pyplot as pyl
-from astropy.io import fits
-from trippy import scamp
 import logging
+import os
+
+import numpy as np
+from astropy.io import fits
+from matplotlib import pyplot as pyl
+from trippy import scamp
+
 from . import util
 
 
@@ -38,23 +39,11 @@ def main():
 
     input_rerun, output_rerun = util.parse_rerun(args.rerun)
 
-    corr_dir = os.path.join(args.basedir, 'rerun', input_rerun, args.pointing, args.filter, 'corr')
-    diff_dir = os.path.join(args.basedir, 'rerun', output_rerun, 'deepDiff', args.pointing, args.filter)
-    logging.debug(f'Set CORR dir to: {corr_dir}')
-    logging.debug(f'Set DIFF dir to: {corr_dir}')
+    corr_fn = util.get_image_list(input_rerun, exptype='CORR', visit=args.visit, ccd=args.ccd,
+                                  filters=[args.filter])[0]
+    diff_fn = util.get_image_list(input_rerun, exptype=args.exptype, visit=args.visit,
+                                  ccd=args.ccd, filters=[args.filter])[0]
 
-    corr_pattern = 'CORR-{visit:07d}-{ccd:03d}.fits'
-    diff_pattern = 'DIFFEXP-{visit:07d}-{ccd:03d}.fits'
-    corr_fn = os.path.join(corr_dir, corr_pattern.format(visit=args.visit,
-                                  ccd=args.ccd))
-    diff_fn = os.path.join(diff_dir, diff_pattern.format(visit=args.visit,
-                                  ccd=args.ccd))
-
-    if not os.access(corr_fn, os.R_OK):
-        # try .fz version
-        corr_pattern = 'CORR-{visit:07d}-{ccd:03d}.fits.fz'
-        corr_fn = os.path.join(corr_dir, corr_pattern.format(visit=args.visit,
-                               ccd=args.ccd))
     logging.debug(f'Attempting to open corr image at {corr_fn}')
     with fits.open(corr_fn) as han:
         corr_data = han[1].data
@@ -195,7 +184,8 @@ def main():
 
     with fits.open(diff_fn) as han:
         han[1].data = exp_data[10*int(psf_fwhm):10*int(psf_fwhm)+A, 10*int(psf_fwhm):10*int(psf_fwhm)+B]
-        han.writeto(diff_fn.replace('.fits', '_masked.fits'), overwrite=True)
+        output_filename = diff_fn.replace(args.exptype, 'DIFFMASKED')
+        han.writeto(output_filename, overwrite=True)
 
     frac = num_trim_pix/(A*B)
     logging.info(f'Trimmed {num_trim_pix} or {frac} of the image area.')
