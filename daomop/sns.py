@@ -1,12 +1,14 @@
 import argparse
-import glob
 import logging
-import math
 import os
 import sys
 
 import numpy as np
+
+numpy = np
+
 from astropy import time, units
+from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
@@ -14,7 +16,30 @@ from ccdproc import CCDData, wcs_project, Combiner
 from . import util
 from .version import __version__
 
-numpy = np
+from pathlib import Path
+import re
+
+
+def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=None):
+    _filelist = []
+    exptype = exptype is not None and f"{exptype}" or "*"
+    visit = visit is not None and f"{visit}" or "???????"
+    ccd = ccd is not None and f"{ccd:03d}" or "???"
+    pattern = f"{exptype}-{visit}-{ccd}.f*"
+    logging.info(f"Searching for data in {Path(dirname).resolve()} using pattern: {pattern}")
+    for path in Path(dirname).rglob(f'{pattern}'):
+        if not re.search(exptype+'-[0-9]{7}-[0-9]{3}.fits', path.name):
+            continue
+        full_path = str(path.resolve())
+        for pattern in filters:
+            logging.debug(f"Filtering {full_path} using pattern: {pattern}")
+            if not re.search(str(pattern), full_path):
+                break
+            _filelist.append(full_path)
+    _filelist = np.unique(_filelist)
+    logging.info(f"Returning list of {len(_filelist)} files.")
+    return _filelist
+
 
 STACKING_MODES = {'MEDIAN': np.nanmedian,
                   'MEAN': np.nanmean,
@@ -98,7 +123,7 @@ def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
     return data
 
 
-def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
+def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwargs):
     """
     use the WCS to project all image to the 'reference_hdu' shifting the the CRVAL of each image by rate*dt
     :param stacking_mode: what process to use for combining images MEAN or MEDIAN
@@ -109,6 +134,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
     :return: fits.HDUList
     """
     # Project the input images to the same grid using interpolation
+    logging.debug(f"Called with {kwargs}")
     if stacking_mode not in ['MEDIAN', 'MEAN']:
         logging.warning(f'{stacking_mode} not available for swarp stack. Setting to MEAN')
         stacking_mode = 'MEAN'
@@ -122,8 +148,8 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
         wcs_header = hdu[1].header.copy()
         dt = (mid_exposure_mjd(hdu[0]) - reference_date)
         if rate is not None:
-            wcs_header['CRVAL1'] += (rate['dra'] * dt)
-            wcs_header['CRVAL2'] += (rate['ddec'] * dt)
+            wcs_header['CRVAL1'] += (rate['dra'] * dt).to('degree').value
+            wcs_header['CRVAL2'] += (rate['ddec'] * dt).to('degree').value
         for layer in hdu_idx:
             data = hdu[hdu_idx[layer]].data
             if layer == 'variance':
@@ -131,14 +157,14 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
             elif layer == 'mask':
                 data = bitfield_to_boolean_mask(data, ignore_flags=STACK_MASK, flip_bits=True)
             ccd_data[layer] = data
-        logging.info(f'Adding {hdu[0]} to projected stack.')
+        logging.debug(f'Adding {hdu[0]} to projected stack.')
         stack_input.append(wcs_project(CCDData(ccd_data['image'],
                                                mask=ccd_data['mask'],
                                                header=wcs_header,
                                                wcs=WCS(wcs_header),
                                                unit='adu',
                                                uncertainty=ccd_data['variance']),
-                                       WCS(reference_hdu.header)))
+                                       WCS(reference_hdu[1].header)))
         logging.debug(f'{stack_input[-1].header}')
     if rate is not None:
         combiner = Combiner(stack_input)
@@ -146,7 +172,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN"):
             stacked_image = combiner.median_combine()
         else:
             stacked_image = combiner.average_combine()
-        return fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0]),
+        return fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
                              fits.ImageHDU(data=stacked_image.data, header=reference_hdu[1].header)])
     else:
         return stack_input
@@ -183,12 +209,7 @@ def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
     logging.debug(f'Working on array {hdu[0]} of size '
                   f'{hdu[1].data.shape} and shifting by '
                   f'dx {dra} and dy {ddec}')
-    # Use the WCS to determine the x/y shit to allow for different ccd orientations.
-    xc = hdu[1].data.shape[1]/2.0
-    yc = hdu[1].data.shape[0]/2.0
-    sky_ra, sky_dec = w.wcs_pix2world(xc, yc, 0)
-    sky_coord = sky_ra, sky_dec
-    logging.debug(f'Centre of the CCD is {sky_coord}')
+    sky_coord = get_centre_coord(hdu)
     # Add offset needed to align the corner of the image with the reference image.
     dra -= (ref_skycoord[0] - sky_coord[0])*units.degree
     ddec -= (ref_skycoord[1] - sky_coord[1])*units.degree
@@ -206,6 +227,37 @@ def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
     # up_sample_2d(scaled_images[frameid(hdu)], hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf)
 
 
+def get_centre_coord(hdulist):
+    """
+    Using the image header compute the RA/DEC of the central pixel
+    :param hdulist: FITS HDUList of ImageHDU to compute central RA/DEC for.
+    :type hdulist: fits.HDUList
+    :return: Central RA/DEC coordinate in COOSYS of the primary WCS.
+    :rtype: SkyCoord
+    """
+    xc = hdulist[1].data.shape[1]/2.0
+    yc = hdulist[1].data.shape[0]/2.0
+    sky_ra, sky_dec = WCS(hdulist[1].header).wcs_pix2world(xc, yc, 0)
+    sky_coord = sky_ra, sky_dec
+    logging.debug(f'Centre of the CCD is {sky_coord}')
+    return sky_coord
+
+
+def remap_array(image_data, dest_bounds, source_bounds):
+    """
+
+    :param image_data: image data that will be mapped to a new array boundary.
+    :type image_data: np.array
+    :param dest_bounds: the [i1:i2,j1:j2] bounds where data will be mapped into.
+    :type dest_bounds: list(2,2)
+    :param source_bounds: the [i1:i2,j1:j2] bounds where data will be mapped from.
+    :type source_bounds: list(2,2)
+    :return: None
+    """
+    image_data[dest_bounds[0][0]:dest_bounds[0][1], dest_bounds[1][0]:dest_bounds[1][1]] = \
+        image_data[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
+
+
 def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024):
     """
     Original pixel grid expansion shift+stack code from wes.
@@ -220,17 +272,13 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
 
     rx = rate['dra']
     ry = rate['ddec']
-    logging.info(f'Shifting at ({rx},{ry})')
+    logging.debug(f'Shifting at ({rx},{ry})')
 
     mid_mjd = mid_exposure_mjd(reference_hdu[0])
-    w = WCS(reference_hdu[1].header)
-    xc = reference_hdu[1].data.shape[1]/2.0
-    yc = reference_hdu[1].data.shape[0]/2.0
-    ref_ra, ref_dec = w.wcs_pix2world(xc, yc, 0)
-    ref_skycoord = ref_ra, ref_dec
+    ref_skycoord = get_centre_coord(reference_hdu)
     logging.debug(f'Reference Sky Coord {ref_skycoord}')
     logging.debug(f'Reference exposure taken at {mid_mjd.isot}')
-    logging.info(f'Shifting {len(hdus)} to remove object motion')
+    logging.debug(f'Shifting {len(hdus)} to remove object motion')
     y_section_grid = np.arange(0, reference_hdu[1].data.shape[0], section_size)
     logging.debug(f'Chunk grid: y {y_section_grid}')
     x_section_grid = np.arange(0, reference_hdu[1].data.shape[1], section_size)
@@ -239,7 +287,6 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     variance_array = np.zeros(reference_hdu[1].data.shape)
     # putt a padding box around our image to account for the maximum object shear
     # between the first and final image (which are about 4 hours apart)
-    # padding = ((rx.to('arcsec/hour').value)**2+(ry.to('arcsec/hour').value)**2)*4.0/0.15
     padding = {'low': {'x': 0, 'y': 0}, 'high': {'x': 0, 'y': 0}}
     for hdu in hdus:
         dx, dy = compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord)
@@ -247,12 +294,6 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
         padding['low']['y'] = min(dy+1, padding['low']['y'])
         padding['high']['x'] = max(dx-1, padding['high']['x'])
         padding['high']['y'] = max(dy+1, padding['high']['y'])
-    # setup the space to store the scaled up image and variance
-    # scaled_images = {}
-    # scaled_variances = {}
-    # for hdu in hdus:
-    #     scaled_images[frameid(hdu)] = np.zeros((rf*(section_size+2*padding), rf*(section_size+2*padding)))
-    #     scaled_variances[frameid(hdu)] = np.zeros((rf*(section_size+2*padding), rf*(section_size+2*padding)))
     for yo in y_section_grid:
         # yo,yp are the bounds were data will be inserted into image_array
         # but we need y1,y2 range of data to come from input to allow for 
@@ -282,14 +323,6 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                 logging.debug(f'Adding exposure taken at {mid_exposure_mjd(hdu[0]).isot} reference from {mid_mjd.isot}')
                 dx, dy = compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord)
                 logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
-
-                # Weight by the variance. 
-                # up_sample_2d(scaled_images[frameid(hdu)], hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf)
-                # up_sample_2d(scaled_variances[frameid(hdu)], hdu[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf)
-                # y_dim = (y2-y1)*rf
-                # x_dim = (x2-x1)*rf
-                # rep = scaled_images[frameid(hdu)][0:ydim,0:xdim]
-                # variance = scaled_variances[frameid(hdu)][0:ydim,0:xdim]
                 rep = np.repeat(np.repeat(hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf, axis=0),
                                 rf, axis=1)
                 logging.debug("Data from shape {} has been sampled into shape {}".format(
@@ -310,10 +343,8 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                         dest_bounds[axis] = offsets[axis], rep.shape[axis]
                         source_bounds[axis] = 0, rep.shape[axis] - offsets[axis]
                 logging.debug(f'Placing data from section {source_bounds} into {dest_bounds}')
-                rep[dest_bounds[0][0]:dest_bounds[0][1], dest_bounds[1][0]:dest_bounds[1][1]] = \
-                    rep[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
-                variance[dest_bounds[0][0]:dest_bounds[0][1], dest_bounds[1][0]:dest_bounds[1][1]] = \
-                    variance[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
+                remap_array(rep, dest_bounds, source_bounds)
+                remap_array(variance, dest_bounds, source_bounds)
                 outs.append(rep)
                 variances.append(variance)
             variances = np.array(variances)
@@ -371,7 +402,7 @@ def main():
 
     parser.add_argument('--pixel-scale', help="What should the pixel scale of the stack be? (in arc-seconds)",
                         default=0.16)
-    parser.add_argument('--exptype', help="What type of exposures to co-add?", default='deepDiff')
+    parser.add_argument('--exptype', help="What type of exposures to co-add?", default='DIFFEXP')
     parser.add_argument('--swarp', action='store_true', help="Use projection to do shifts, default is pixel shifts.")
     parser.add_argument('--stack-mode', choices=STACKING_MODES.keys(),
                         default='WEIGHTED_MEDIAN', help="How to combine images.")
@@ -389,6 +420,9 @@ def main():
                         help='Mask pixel whose variance is clip times the median variance')
     parser.add_argument('--section-size', type=int, default=1024,
                         help='Break images into section when stacking (conserves memory)')
+    parser.add_argument('--centre', default=None, help="only stack data around this RA/DEC (decimal degree) centre",
+                        nargs=2, type=float)
+    parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
     parser.add_argument('--masked', action='store_true', help='pattern match: DIFF*{ccd}*_masked.fits')
 
     args = parser.parse_args()
