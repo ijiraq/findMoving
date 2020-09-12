@@ -452,7 +452,7 @@ def main():
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
         num_of_images = min(6, len(images))
         stride = max(1, int(len(images)/num_of_images-1))
-        logging.debug(f'Selecting {num_of_images}, every {stride} image list.')
+        logging.debug(f'Selecting every {stride}th images, for total of {num_of_images}')
         images = images[::stride]
 
     # do the stacking in groups of images as set from the CL.
@@ -460,7 +460,7 @@ def main():
         if not args.group:
             # stride the image list
             sub_images = images[index::args.n_sub_stacks]
-            reference_idx = int(len(images) // 2)
+            reference_idx = int(len(sub_images) // 2)
         else:
             # group images by time
             start_idx = len(images)//args.n_sub_stacks*index
@@ -471,6 +471,7 @@ def main():
             reference_idx = int(len(sub_images) // 2)
 
         hdus = [fits.open(image) for image in sub_images]
+        print(hdus)
 
         # set the reference image
         reference_hdu = hdus[reference_idx]
@@ -570,7 +571,7 @@ def main():
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             output[0].header['CCDNUM'] = (args.ccd, 'CCD NUMBER or DETSER')
             output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
-            output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0].header), "MJD MID Exposure")
+            output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0]).mjd, "MJD MID Exposure")
             output[0].header['ASTLEVEL'] = 1
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
