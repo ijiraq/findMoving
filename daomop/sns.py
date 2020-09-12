@@ -15,32 +15,8 @@ from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
 
 from . import util
+from .util import get_image_list
 from .version import __version__
-
-from pathlib import Path
-import re
-
-
-def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=None):
-    _filelist = []
-    exptype = exptype is not None and f"{exptype}" or "*"
-    visit = visit is not None and f"{visit}" or "???????"
-    ccd = ccd is not None and f"{ccd:03d}" or "???"
-    pattern = f"{exptype}-{visit}-{ccd}.f*"
-    logging.info(f"Searching for data in {Path(dirname).resolve()} using pattern: {pattern}")
-    for path in Path(dirname).rglob(f'{pattern}'):
-        if not re.search(exptype+'-[0-9]{7}-[0-9]{3}.fits', path.name):
-            continue
-        full_path = str(path.resolve())
-        for pattern in filters:
-            logging.debug(f"Filtering {full_path} using pattern: {pattern}")
-            if not re.search(str(pattern), full_path):
-                break
-            _filelist.append(full_path)
-    _filelist = np.unique(_filelist)
-    logging.info(f"Returning list of {len(_filelist)} files.")
-    return _filelist
-
 
 STACKING_MODES = {'MEDIAN': np.nanmedian,
                   'MEAN': np.nanmean,
@@ -404,7 +380,6 @@ def main():
 
     parser.add_argument('--pixel-scale', help="What should the pixel scale of the stack be? (in arc-seconds)",
                         default=0.16)
-    parser.add_argument('--exptype', help="What type of exposures to co-add?", default='DIFFEXP')
     parser.add_argument('--swarp', action='store_true', help="Use projection to do shifts, default is pixel shifts.")
     parser.add_argument('--stack-mode', choices=STACKING_MODES.keys(),
                         default='WEIGHTED_MEDIAN', help="How to combine images.")
@@ -436,13 +411,10 @@ def main():
     if len(reruns) > 2:
         raise ValueError("Don't know what to do with more then 2 rerun directories.")
 
-    if len(reruns) == 1:
-        input_rerun = output_rerun = reruns[0]
-    else:
-        input_rerun = reruns[0]
-        output_rerun = reruns[1]
+    input_rerun, output_rerun = util.parse_rerun(args.rerun)
 
-    output_dir = os.path.join(args.basedir, 'rerun', output_rerun, args.exptype, args.pointing, args.filter)
+    output_dir = os.path.join(args.basedir, 'rerun', output_rerun,
+                              args.exptype, args.pointing, args.filter)
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f'Writing results to {output_dir}')
 
