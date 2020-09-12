@@ -408,10 +408,9 @@ def main():
     if len(reruns) > 2:
         raise ValueError("Don't know what to do with more then 2 rerun directories.")
 
-    input_rerun, output_rerun = util.parse_rerun(args.rerun)
+    input_rerun, output_rerun = util.parse_rerun(args.basedir, args.rerun)
 
-    output_dir = os.path.join(args.basedir, 'rerun', output_rerun,
-                              args.exptype, args.pointing, args.filter)
+    output_dir = os.path.join(output_rerun, args.exptype, args.pointing, args.filter)
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f'Writing results to {output_dir}')
 
@@ -425,12 +424,11 @@ def main():
     logging.info(f'Shift-and-Stacking the following list of rate/angle pairs: '
                  f'{[(rate["rate"],rate["angle"]) for rate in rates]}')
 
-    input_dir = os.path.join(args.basedir, 'rerun', input_rerun)
-    logging.info(f'Loading all images matching pattern: {input_dir}')
-    images = np.array(get_image_list(input_dir, args.exptype, ccd=args.ccd,
+    logging.info(f'Loading all images matching pattern: {input_rerun}')
+    images = np.array(get_image_list(input_rerun, args.exptype, ccd=args.ccd,
                                      visit=args.visit, filters=[args.pointing, args.filter]))
     if not len(images) > 0:
-        raise OSError(f'No images found using {input_dir}')
+        raise OSError(f'No images found using {input_rerun}')
 
     # Organize images in MJD order.
     mjds = []

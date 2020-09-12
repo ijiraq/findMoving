@@ -37,11 +37,13 @@ def main():
         # If logging is lower than verbose (ie debug) then show plots.
         show_radial_plots = True
 
-    input_rerun, output_rerun = util.parse_rerun(args.rerun)
+    input_rerun, output_rerun = util.parse_rerun(args.basedir, args.rerun)
+    logging.debug(f"Setting input_rerun to {input_rerun}")
 
     corr_fn = util.get_image_list(input_rerun, exptype='CORR', visit=args.visit, ccd=args.ccd,
                                   filters=[args.filter])[0]
-    diff_fn = util.get_image_list(input_rerun, exptype=args.exptype, visit=args.visit,
+    diff_rerun, junk  = util.parse_rerun(args.basedir, ["diff",])
+    diff_fn = util.get_image_list(diff_rerun, exptype=args.exptype, visit=args.visit,
                                   ccd=args.ccd, filters=[args.filter])[0]
 
     logging.debug(f'Attempting to open corr image at {corr_fn}')
@@ -99,12 +101,12 @@ def main():
     fits.writeto(filename=fits_filename, data=corr_data, header=header, overwrite=True)
 
     scamp.runSex(sex_filename, fits_filename,
-                 options={'CATALOG_NAME': cat_filename},
-                 verbose=logging.getLogger().getEffectiveLevel() < logging.WARNING)
+                 options={'CATALOG_NAME': cat_filename}, verbose=False)
     ref_catalog = scamp.getCatalog(cat_filename,
                                    paramFile=param_filename)
 
     (A, B) = corr_data.shape
+    logging.debug(f"Got reference catalog {ref_catalog}")
 
     exp_data = np.zeros((A+20*int(psf_fwhm), B+20*int(psf_fwhm)), dtype=corr_data.dtype)
     exp_data[10*int(psf_fwhm):10*int(psf_fwhm)+A, 10*int(psf_fwhm):10*int(psf_fwhm)+B] = diff_data
@@ -184,7 +186,7 @@ def main():
 
     with fits.open(diff_fn) as han:
         han[1].data = exp_data[10*int(psf_fwhm):10*int(psf_fwhm)+A, 10*int(psf_fwhm):10*int(psf_fwhm)+B]
-        output_filename = diff_fn.replace(args.exptype, 'DIFFMASKED')
+        output_filename = diff_fn.replace(args.exptype, 'MASKED')
         han.writeto(output_filename, overwrite=True)
 
     frac = num_trim_pix/(A*B)

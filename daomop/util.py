@@ -3,6 +3,7 @@ import logging
 import numpy as np
 import re
 from pathlib import Path
+import os
 
 base_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                       fromfile_prefix_chars='@',
@@ -24,7 +25,7 @@ base_parser.add_argument('--log-level', help="What level to log at? (ERROR, INFO
 def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=None):
     _filelist = []
     exptype = exptype is not None and f"{exptype}" or "*"
-    visit = visit is not None and f"{visit}" or "???????"
+    visit = visit is not None and f"{visit:07d}" or "???????"
     ccd = ccd is not None and f"{ccd:03d}" or "???"
     pattern = f"{exptype}-{visit}-{ccd}.f*"
     logging.info(f"Searching for data in {Path(dirname).resolve()} using pattern: {pattern}")
@@ -65,7 +66,7 @@ def from_provisional_name(p_name):
     return pointing, ccd, index
 
 
-def parse_rerun(rerun):
+def parse_rerun(basedir, rerun):
     reruns = rerun[0].split(":")
     if len(reruns) > 2:
         raise ValueError("Don't know what to do with more then 2 rerun directories.")
@@ -75,4 +76,7 @@ def parse_rerun(rerun):
     else:
         input_rerun = reruns[0]
         output_rerun = reruns[1]
+    input_rerun = os.path.join(basedir, 'rerun', input_rerun)
+    output_rerun = os.path.join(basedir, 'rerun', output_rerun)
+
     return input_rerun, output_rerun

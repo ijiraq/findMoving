@@ -12,6 +12,7 @@ setup(
     scripts=['scripts/daomop-stack-cmd',
              'scripts/daomop-run-sns.sh',
              'scripts/daomop-target-sns.sh',
+             'scripts/daomop-maskdiffs.sh',
              'scripts/daomop-filesync.sh'],
     package_data={'daomop': ['*.json']},
     entry_points={
