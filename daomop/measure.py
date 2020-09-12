@@ -1,5 +1,5 @@
 """
-Measure the location of a KBO and its flux in a stack of images.  Should optimze the number of images in the stack
+Measure the location of a KBO and its flux in a stack of images.  Should optimize the number of images in the stack
 and the rate/angle of stacking to get the best possible flux measurement. works off the 'difference' images.
 
 We will assume the WCS of the difference images are correct.
@@ -11,13 +11,10 @@ from matplotlib import pyplot
 from astropy.io import fits
 from astropy.time import Time
 from astropy import wcs
-from astropy.visualization import ZScaleInterval
 import numpy
-import sys
-from scipy.interpolate import RectBivariateSpline, interp2d
+from scipy.interpolate import RectBivariateSpline
 import os
 import vos
-import requests
 
 
 VOS_BASE_URI = "vos:NewHorizons/S20A-OT04"
@@ -83,7 +80,7 @@ def get_fits_header(uri):
     else:
         c = vos.Client()
         fobj = c.open(uri, view='header')
-        header=fits.Header.fromtextfile(BytesIO(fobj.read()))
+        header = fits.Header.fromtextfile(BytesIO(fobj.read()))
         fobj.close()
     return header
 

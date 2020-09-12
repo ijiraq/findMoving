@@ -13,6 +13,7 @@ from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
+
 from . import util
 from .version import __version__
 
@@ -201,6 +202,7 @@ def up_sample_2d(output_array, input_array, rf):
 def frameid(hdu):
     return hdu[0].header['FRAMEID']
 
+
 def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
     logging.debug(f'Compute x/y shifts from : {rx},{ry} scaled by {rf} and mid_mjd: {mid_mjd}')
     w = WCS(hdu[1].header)
@@ -223,7 +225,7 @@ def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
     logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
     return dx, dy
 
-    # Weight by the variance. 
+    # Weight by the variance.
     # up_sample_2d(scaled_images[frameid(hdu)], hdu[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf)
 
 
@@ -423,17 +425,12 @@ def main():
     parser.add_argument('--centre', default=None, help="only stack data around this RA/DEC (decimal degree) centre",
                         nargs=2, type=float)
     parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
-    parser.add_argument('--masked', action='store_true', help='pattern match: DIFF*{ccd}*_masked.fits')
+    parser.add_argument('--centre', default=None, help="only stack data around this RA/DEC (decimal degree) centre",
+                        nargs=2, type=float)
+    parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
-
-    if args.swarp:
-        stack_function = swarp
-    else:
-        stack_function = shift
-
-    ccd = f'{args.ccd:03d}'
 
     reruns = args.rerun[0].split(":")
     if len(reruns) > 2:
@@ -445,23 +442,42 @@ def main():
         input_rerun = reruns[0]
         output_rerun = reruns[1]
 
-    if args.masked:
-        filename_pattern = f'DIFF*-{ccd}_masked.fits'
-    else:
-        filename_pattern = f'DIFF*_{ccd}.fits'
-
-    input_dir = os.path.join(args.basedir, 'rerun', input_rerun, args.exptype,
-                             args.pointing, args.filter, filename_pattern)
-    logging.info(f'Loading all images matching pattern: {input_dir}')
-    images = glob.glob(input_dir)
-    if not len(images) > 0:
-        raise OSError(f'No images found using {input_dir}')
-    images.sort()
-    images = np.array(images)
-
     output_dir = os.path.join(args.basedir, 'rerun', output_rerun, args.exptype, args.pointing, args.filter)
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f'Writing results to {output_dir}')
+
+    if args.swarp:
+        stack_function = swarp
+    else:
+        stack_function = shift
+
+    rates = shift_rates(args.rate_min, args.rate_max, args.rate_step,
+                        args.angle_min, args.angle_max, args.angle_step)
+    logging.info(f'Shift-and-Stacking the following list of rate/angle pairs: '
+                 f'{[(rate["rate"],rate["angle"]) for rate in rates]}')
+
+    input_dir = os.path.join(args.basedir, 'rerun', input_rerun)
+    logging.info(f'Loading all images matching pattern: {input_dir}')
+    images = np.array(get_image_list(input_dir, args.exptype, ccd=args.ccd,
+                                     visit=args.visit, filters=[args.pointing, args.filter]))
+    if not len(images) > 0:
+        raise OSError(f'No images found using {input_dir}')
+
+    # Organize images in MJD order.
+    mjds = []
+    logging.info(f"Sorting list of {len(images)} based on mjd")
+    for image in images:
+        try:
+            with fits.open(image) as hdu:
+                mjds.append(time.Time(mid_exposure_mjd((hdu[0]))))
+        except Exception as ex:
+            logging.error(str(ex))
+            logging.error(f"Failed to open {image}")
+            del images[image]
+
+    ind = np.argsort(mjds)
+    # sort the images by mjd
+    images = images[ind]
 
     # In debug mode just do three images or less if there aren't three
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
@@ -470,34 +486,66 @@ def main():
         logging.debug(f'Selecting {num_of_images}, every {stride} image list.')
         images = images[::stride]
 
-    # Organize images in MJD order.
-    images = np.array(images)
-    mjds = []
-    for image in images:
-        with fits.open(image) as hdu:
-            mjds.append(time.Time(mid_exposure_mjd((hdu[0]))))
-    ind = np.argsort(mjds)
-    reference_idx = int(len(ind)//2)
-    images = images[ind]
-    reference_hdu = fits.open(images[reference_idx])
-    reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
-    logging.debug(f'Will use {reference_filename} as base name for storage.')
-    logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
-
     # do the stacking in groups of images as set from the CL.
     for index in range(args.n_sub_stacks):
-        sub_images = images[index::args.n_sub_stacks]
+        if not args.group:
+            # stride the image list
+            sub_images = images[index::args.n_sub_stacks]
+            reference_idx = int(len(images) // 2)
+        else:
+            # group images by time
+            start_idx = len(images)//args.n_sub_stacks*index
+            start_idx = int(max(0, start_idx))
+            end_idx = len(images)//args.n_sub_stacks*(index+1)
+            end_idx = int(min(len(images), end_idx))
+            sub_images = images[start_idx:end_idx]
+            reference_idx = int(len(sub_images) // 2)
+
         hdus = [fits.open(image) for image in sub_images]
+
+        # set the reference image
+        reference_hdu = hdus[reference_idx]
+        reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
+        logging.debug(f'Will use {reference_filename} as base name for storage.')
+        logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
 
         if not args.swarp and args.rectify:
             # Need to project all images to same WCS before passing to stack.
             logging.info('Swarp-ing the input images to a common projection and reference frame.')
-            swarped = swarp(hdus, reference_hdu, None)
-            for idx in range(len(swarped)):
-                hdus[idx][1].data = swarped[idx].data
-                hdus[idx][1].header = swarped[idx].header
-                hdus[idx][2].data = swarped[idx].mask
-                hdus[idx][3].data = swarped[idx].uncertainty
+            for idx, image in enumerate(swarp(hdus, reference_hdu, None)):
+                hdus[idx][1].data = image.data
+                hdus[idx][1].header = image.header
+                hdus[idx][2].data = image.mask
+                hdus[idx][3].data = image.uncertainty
+
+        if args.centre is not None:
+            centre = SkyCoord(args.centre[0], args.centre[1], unit='degree')
+            box_size = args.section_size//2
+            logging.debug(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
+            for hdu in hdus:
+                w = WCS(hdu[1].header)
+                x, y = w.all_world2pix(args.centre[0], args.centre[1], 0)
+                logging.debug(f'{centre} -> {x},{y}')
+                x1 = int(max(0, x - box_size))
+                x2 = int(min(hdu[1].header['NAXIS1'], x1 + 2*box_size))
+                x1 = int(max(0, x2 - 2*box_size))
+                y1 = int(max(0, y - box_size))
+                y2 = int(min(hdu[1].header['NAXIS2'], y1 + 2*box_size))
+                y1 = int(max(0, y2 - 2*box_size))
+                logging.debug(f'{hdu[0].header["FRAMEID"]} -> [{y1}:{y2},{x1}:{x2}]')
+                for idx in range(1, 4):
+                    try:
+                        data = hdu[idx].data[y1:y2, x1:x2]
+                    except Exception as ex:
+                        logging.error(str(ex))
+                        logging.error(f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdu[0].header['FRAMEID']}")
+                        data = np.ones((y2-y1+1)*(x2-x1+1))*np.nan
+                        data.shape = y2-y1+1, x2-x1+1
+                    hdu[idx].data = data
+                    hdu[idx].header['XOFFSET'] = x1
+                    hdu[idx].header['YOFFSET'] = y1
+                    hdu[idx].header['CRPIX1'] -= x1
+                    hdu[idx].header['CRPIX2'] -= y1
 
         if args.clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
@@ -524,19 +572,25 @@ def main():
                 hdu[HSC_HDU_MAP['variance']].data = mask_as_nan(hdu[HSC_HDU_MAP['variance']].data,
                                                                 hdu[HSC_HDU_MAP['mask']].data)
 
-        for rate in shift_rates(args.rate_min, args.rate_max, args.rate_step,
-                                args.angle_min, args.angle_max, args.angle_step):
+        for rate in rates:
             dra = rate['rate']*np.cos(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
             ddec = rate['rate']*np.sin(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
-            output_filename = f'STACK-{reference_filename}-{index:02d}-' \
-                              f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
+            if args.group:
+                int_rate = int(rate["rate"]*10)
+                int_angle = int((rate['angle'] % 360)*10)
+                expnum = f'{int(args.pointing)}{int_rate:02d}{int_angle:04d}{index}'
+                output_filename = f'{expnum}p{args.ccd:02d}.fits'
+            else:
+                output_filename = f'STACK-{reference_filename}-{index:02d}-' \
+                                  f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
+                expnum = reference_hdu[0].header.get('FRAMEID', 'HSCA0000000').replace('HSCA', '')
             output_filename = os.path.join(output_dir, output_filename)
             if os.access(output_filename, os.R_OK):
                 logging.warning(f'{output_filename} exists, skipping')
                 continue
             output = stack_function(hdus, reference_hdu, {'dra': dra, 'ddec': ddec},
                                     stacking_mode=args.stack_mode, section_size=args.section_size)
-            logging.debug(f'Got stack result {output}')
+            logging.debug(f'Got stack result {output}, writing to {output_filename}')
             # Keep a history of which visits when into the stack.
             output[0].header['SOFTWARE'] = f'{__name__}-{__version__}'
             output[0].header['NCOMBINE'] = (len(hdus), 'Number combined')
@@ -545,6 +599,10 @@ def main():
             output[0].header['ANGLE'] = (rate['angle'], 'degree')
             output[0].header['DRA'] = (dra.value, str(dra.unit))
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
+            output[0].header['CCDNUM'] = (args.ccd, 'CCD NUMBER or DETSER')
+            output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
+            output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0].header), "MJD MID Exposure")
+            output[0].header['ASTLEVEL'] = 1
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
             output.writeto(output_filename)
