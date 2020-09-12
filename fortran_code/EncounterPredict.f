@@ -13,13 +13,13 @@ c-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
 
       implicit none
 
-      integer*4 n_obj_max, screen, keybd, verbose
-      integer*4 code, lun_trajectory, lun_orbit, line_number
-      integer*4 nw_max, nw, ierr, nchar, stderr, rierr
-      real*8 tmp, mt
+      integer*4 screen, keybd, verbose
+      integer*4 code, lun_trajectory, lun_orbit
+      integer*4 nw_max, ierr, stderr
+      real*8 mt
 
       parameter
-     $     (n_obj_max = 10000, screen = 6, keybd = 5, verbose = 9,
+     $     (screen = 6, keybd = 5, verbose = 9,
      $     nw_max = 30, stderr = 0)
       character buffer*800
 
@@ -34,7 +34,7 @@ c     Barycentric Elements
 c     Physical Parameters 
       real*8 h, gb
 C     circumstances
-      real*8 obs_jday, obs_pos(3), ros
+      real*8 obs_jday, nh_pos(3), nh_vel(3), ros
 c     Lorri Observer Computed values
       real*8 ra, dec, r, delta, alpha, mag, pos(3)
 
@@ -49,26 +49,32 @@ C     inputs
       trajectory_file = trim(trajectory_file)
 
 C     Orbit file should be formated. 
-C     a e inc node peri M epoch
+C     a e inc node peri M epoch H
       open (unit=lun_orbit, file=orbit_file, status='OLD')
-      read (lun_orbit, *, err=9999)  a, e, inc, node, peri, M, epoch
+      read (lun_orbit, *, err=9999)
+     $ a, e, inc, node, peri, M, epoch, h
+      inc = inc * drad
+      node = node * drad
+      peri = peri * drad
+      M = M * drad
       close (lun_orbit)
 
       open (unit=lun_trajectory, file=trajectory_file, status='OLD')
 c     Skip First line (should be header line)
       read(lun_trajectory, *) buffer
-      if (ierr .ne. 0) then
-         write (stderr, *) 'Error reading trajectory '//trajectory_file
-         call exit(255)
-      end if
 
 c     First possible date for observation
       obs_jday = -1.0
 
-      do while ( rierr < 1 )
+      ierr = 0
+      do while ( ierr < 1 )
 C        Get position of NH at obs_jday
          call ObsPos(-lun_trajectory, obs_jday, 
-     $        obs_pos, tmp, ros, ierr)
+     $        nh_pos, nh_vel, ros, ierr)
+      if (ierr .ne. 0) then
+         write (stderr, *) 'Error reading trajectory '//trajectory_file
+         call exit(255)
+      end if
 
 C        Get the RA/DEC at date
          mt = M
@@ -76,18 +82,18 @@ C        Get the RA/DEC at date
          mt = mt - int(mt/TwoPi)*TwoPi
          call pos_cart(a, e, inc, node, peri, mt, pos(1),
      $        pos(2), pos(3))
-         call RADECeclXV(pos, obs_pos, delta, ra, dec)
+         call RADECeclXV(pos, nh_pos, delta, ra, dec)
 C        Compute the magnitude
          r = sqrt(pos(1)**2 + pos(2)**2 + pos(3)**2)
          call AppMag(r, delta, ros, h, gb, alpha, 
      $        mag, ierr) 
 C        Spacecraft observers in open filter
          mag = mag + 0.7
-
-         write (screen, '(6(f16.5,1x))', advance='no') obs_jday, 
-     $        ra, dec, delta, mag,  alpha
-
- 8000 end do
+         if ( mag < 21 ) then
+             write (screen, '(6(f16.5,1x))') obs_jday,
+     $            ra/drad, dec/drad, delta, mag,  alpha/drad
+         end if
+      end do
 
  9999 CONTINUE
       end program EP

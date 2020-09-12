@@ -217,7 +217,7 @@ Cf2py intent(out) h_rand
      $  sur_aw(n_sur_max), sur_tm(n_sur_max), sur_ts(n_sur_max),
      $  sur_ta(n_sur_max), sur_dm(6,n_sur_max), sur_ph(3,n_sur_max),
      $  sur_ml(n_r_max, n_sur_max), mag_err(6), photf(3), color(*),
-     $  maglim, width, height, ra_p, dec_p, jdayp, ff,
+     $  maglim, jdayp, ff,
      $  obspos(3), ros, obspos2(3), ros2, mag_max, mag_faint, random,
      $  eta, track, jday_o, mt0, jdayp2, tmp, eff_lim,
      $  d_ra, d_dec, r_min, r_max, ang, ang_w,
@@ -230,7 +230,7 @@ Cf2py intent(out) h_rand
      $  sur_code(n_sur_max), sur_eff_n(n_r_max, n_sur_max),
      $  sur_nr(n_sur_max), sur_ne(n_sur_max), sur_f(n_sur_max), i,
      $  filt_i, ic, n_e, point_in_polygon, flag_l,
-     $  n_sur, i_sur, ierr, seed, incode, outcod, flag, isur, nph
+     $  n_sur, i_sur, ierr, seed, incode, outcod, flag, isur
 
       character
      $  surnam*(*), sur_eff(n_sur_max)*80, stra*13, stdec*13, surna*10
@@ -883,7 +883,7 @@ Cf2py intent(out) magerr
      $  mag_t, mag_er(*), magerr, mag, tmp, mag_th
 
       integer*4
-     $  seed, i
+     $  seed
 
       mag_th = mag_t
 c      tmp = log10(mag_er(2)/mag_er(1))/(mag_er(3)-21.d0)
@@ -1523,7 +1523,6 @@ c               write (18, *) 'Rate: ', rate
      $              eff_n, eff_b, eff_m, ff, rate, maglim, tmp)
 c                  write (18, *) ff, ros
                   if ((ros .eq. 0.d0) .and. (ff .ge. -0.05d0)) goto 250
- 260           continue
                sur_mm(n_sur) = max(sur_mm(n_sur), ff+0.1d0)
             end if
 c            write (18, *) n_sur, j, sur_mm(n_sur)
@@ -1562,7 +1561,6 @@ c         write (18, *) n_sur, sur_mm(n_sur)
          end if
          goto 100
       end if
- 101  continue
 
       i2 = i1 + 1
  110  continue
@@ -1815,7 +1813,7 @@ c Get rid of unused bins at high magnitude for lookup tables
                j = j - 1
                goto 1700
             end if
-            eff_n(i1) = amin0(j+1, eff_n(i1))
+            eff_n(i1) = min(j+1, eff_n(i1))
          end if
       end do
 
@@ -2325,7 +2323,7 @@ c positions below, I also determined the pixel size: 0.186" x 0.1849"
      $  n_e, j
 
       real*8
-     $  ra, dec, dra, poly(2,*)
+     $  ra, dec, poly(2,*)
 
       do j = 1, n_e
          poly(2,j) = dec + poly(2,j)
@@ -2450,7 +2448,7 @@ c
 c
 c...Initialization
 c
-  100 val = 0.0D00
+      val = 0.0D00
       DO i=1,3
         piece(i) = 0.0D00
       ENDDO
@@ -2579,7 +2577,7 @@ c Determine which efficiency function to use
          ir = ir + 1
          if ((r-rates(1,ir))*(r-rates(2,ir)) .le. 0.d0) goto 600
          if (ir .lt. nr) goto 500
- 510  continue
+      continue
       eta_raw = 0.d0
       maglim = 0.d0
       return
@@ -2944,8 +2942,6 @@ Cf2py intent(out) r
 Cf2py intent(out) ierr
 
       implicit none
-      character 
-     $     buffer*256
 
       integer*4
      $  code, ierr, istat, fun
@@ -2983,9 +2979,11 @@ c Get heliocentric position of Earth.
                return
             end if
             if (jd .gt. t) then               
-               exit
+               goto 1200
             end if
          END DO
+ 1200    continue
+         t = jd
          pos(1) = pos(1)/km2AU
          pos(2) = pos(2)/km2AU
          pos(3) = pos(3)/km2AU
@@ -3819,7 +3817,7 @@ c Check if origin on edge
             return
          end if
          x_y0 = x_y0*(p2(y) - p1(y))
-         if (x_y0 .ne. 0.d0) summand = summand + sign(1.d0, x_y0)
+         if (x_y0 .ne. 0.d0) summand = summand + int(sign(1.d0, x_y0))
       end if
 
 c Check if crossing y axis
@@ -3830,7 +3828,7 @@ c Check if origin on edge
             return
          end if
          y_x0 = y_x0*(p1(x) - p2(x))
-         if (y_x0 .ne. 0.d0) summand = summand + sign(1.d0, y_x0)
+         if (y_x0 .ne. 0.d0) summand = summand + int(sign(1.d0, y_x0))
       end if
       calc_walk_summand = summand
       return
@@ -4015,7 +4013,7 @@ c using the accelerated Newton's method (see Danby).
          write (6, *) capo, smallo, capm
          stop
       end if
- 1100 continue
+      continue
 
 c Coordinates relative to the orbit.
 c The cartisian coordinate are given by $\vec X = R_{xq} \vec q$
@@ -4169,7 +4167,7 @@ c using the accelerated Newton's method (see Danby).
          write (6, *) capo, smallo, capm
          stop
       end if
- 1100 continue
+      continue
 
 c Coordinates relative to the orbit.
 c The cartisian coordinate are given by $\vec X = R_{xq} \vec q$
@@ -4234,9 +4232,6 @@ c      \sin(h), L, G, H$
 c \end{verse}
 c
 c \subsubsection{Declarations}
-
-      integer*4
-     $  i
 
       real*8
      $  delau(8), cos_i, sin_i
