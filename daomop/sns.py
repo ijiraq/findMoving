@@ -469,7 +469,6 @@ def main():
             reference_idx = int(len(sub_images) // 2)
 
         hdus = [fits.open(image) for image in sub_images]
-        print(hdus)
 
         # set the reference image
         reference_hdu = hdus[reference_idx]
