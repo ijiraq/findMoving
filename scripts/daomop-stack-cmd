@@ -48,6 +48,6 @@ daomop-sns ${basedir} \
 	   --mask \
 	   --section-size 600 \
    	   --clip 16 \
-           --log-level DEBUG  || exit
+           --log-level INFO  || exit
 
 mcp "${basedir}/rerun/${stack_rerun}/${exptype}/${pointing}/${filter}/STACK*.fits.fz" ${storage}/ 
