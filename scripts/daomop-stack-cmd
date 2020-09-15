@@ -3,8 +3,9 @@ function mcp {
     loop_counter=0
     while true
     do
-	vcp -v $1 $2 && break || sleep 10 && loop_counter=$((loop_counter+1)) &&
- [ "$loop_counter" -lt "1000" ] || return 
+        sl=${RANDOM}
+        let "sl %= 25"
+	vcp -v $1 $2 && break || sleep ${sl} && loop_counter=$((loop_counter+1)) && [ "$loop_counter" -lt "1000" ] || return 
     done
 }
 
