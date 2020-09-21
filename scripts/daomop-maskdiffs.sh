@@ -58,7 +58,6 @@ do
 			     --pad 0 \
 			     --psf-fwhm ${fwhm}  \
 			     --log-level INFO
-    break
 done
 
 echo "Putting MASKED version to VOSpace"
