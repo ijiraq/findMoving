@@ -118,7 +118,7 @@ def phot(fits_filename, x_in, y_in, aperture=15, sky_inner_radius=20, sky_annulu
         coofile.write("%f %f \n" % (x_in[i], y_in[i]))
     coofile.flush()
     # Used for receiving the results of the task
-    # mag_fd, mag_path = tempfile.mkstemp(suffix=".mag")
+    # mag_fd, mag_path = tempfile.mkstemp(fsuffix=".mag")
     magfile = tempfile.NamedTemporaryFile(suffix=".mag", delete=False, mode='w')
 
     # Close the temp files before sending to IRAF due to docstring:
