@@ -46,7 +46,7 @@ HSC_HDU_MAP = {'image': 1, 'mask': 2, 'variance': 3, 'weight': 3}
 
 
 STACK_MASK = (2**LSST_MASK_BITS['EDGE'], 2**LSST_MASK_BITS['NO_DATA'], 2**LSST_MASK_BITS['BRIGHT_OBJECT'],
-              2**LSST_MASK_BITS['SAT'], 2**LSST_MASK_BITS['INTRP'])
+              2**LSST_MASK_BITS['SAT'], 2**LSST_MASK_BITS['INTRP'], 2**LSST_MASK_BITS['REJECTED'])
 
 
 def weighted_quantile(values, quantile, sample_weight):
@@ -458,7 +458,9 @@ def main():
         if not args.group:
             # stride the image list
             sub_images = images[index::args.n_sub_stacks]
-            reference_idx = int(len(sub_images) // 2)
+            reference_idx = int(len(images) // 2)
+            reference_hdu = fits.open(images[reference_idx])
+            reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         else:
             # group images by time
             start_idx = len(images)//args.n_sub_stacks*index
@@ -467,12 +469,12 @@ def main():
             end_idx = int(min(len(images), end_idx))
             sub_images = images[start_idx:end_idx]
             reference_idx = int(len(sub_images) // 2)
+            reference_hdu = fits.open(sub_images[reference_idx])
+            reference_filename = os.path.splitext(os.path.basename(sub_images[reference_idx]))[0][8:]
 
         hdus = [fits.open(image) for image in sub_images]
 
         # set the reference image
-        reference_hdu = hdus[reference_idx]
-        reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         logging.debug(f'Will use {reference_filename} as base name for storage.')
         logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
 
