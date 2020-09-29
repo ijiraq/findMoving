@@ -1,10 +1,13 @@
 import argparse
+import contextlib
 import logging
 import os
+from io import BytesIO
 
 import numpy as np
 from astropy.io import fits
 from matplotlib import pyplot as pyl
+from pyds9 import DS9
 from trippy import scamp
 
 from . import util
@@ -34,8 +37,9 @@ def get_ref_catalog(hdulist, psf_fwhm):
                 os.unlink(self.name)
 
         def __del__(self):
-            if os.access(self.name, os.F_OK):
-                os.unlink(self.name)
+            if logging.getLogger().getEffectiveLevel() > logging.DEBUG:
+                if os.access(self.name, os.F_OK):
+                    os.unlink(self.name)
 
     debug_mode = logging.getLogger().getEffectiveLevel() > logging.DEBUG
     _files_ = {}
@@ -75,7 +79,7 @@ def main():
     parser.add_argument('--psf-fwhm', help='FWHM as determined from the PSF', type=float, default=5.0)
     parser.add_argument('--clip', type=float, default=16,
                         help='Mask pixel whose variance is clip times the median variance')
-    parser.add_argument('--padding-radius', help='Pad out masking by this many pxiels', type=int, default=3)
+    parser.add_argument('--padding-radius', help='Pad out masking by this many pixels', type=int, default=3)
     parser.add_argument('--cutout-scale', help='Box around start to examine for high variance, in psf_fwhm units.',
                         default=20, type=int)
     args = parser.parse_args()
@@ -150,6 +154,24 @@ def main():
     trim_radii = []
     trim_radius = 0
 
+    if show_radial_plots:
+        display = DS9('intelmask')
+        display.set('zscale')
+        with contextlib.closing(BytesIO()) as newFitsFile:
+            fits.writeto(newFitsFile, data=variance.data, header=variance.header)
+            newfits = newFitsFile.getvalue()
+            display.set('fits', newfits, len(newfits))
+        display.set('frame new')
+        with contextlib.closing(BytesIO()) as newFitsFile:
+            fits.writeto(newFitsFile, data=corr.data, header=corr.header)
+            newfits = newFitsFile.getvalue()
+            display.set('fits', newfits, len(newfits))
+        display.set('frame new')
+        with contextlib.closing(BytesIO()) as newFitsFile:
+            fits.writeto(newFitsFile, data=diff.data, header=diff.header)
+            newfits = newFitsFile.getvalue()
+            display.set('fits', newfits, len(newfits))
+
     for mag_limit in mags:
 
         # create a condition that pulls a magnitude range of sources from ref_catalog
@@ -180,6 +202,7 @@ def main():
         # from the stellar centroid (which is the centre of the cutout box to +/- 0.5 pixels).
         try:
             med_vals = np.nanmedian(vals, axis=0)
+            abs_upper_limit = args.clip*np.sqrt(np.nanmedian(vars)/len(vals))
             sky = np.nanpercentile(vals, 50)
             trim_w = np.where(np.abs(med_vals-sky) > abs_upper_limit)
             if len(trim_w[0]) > 0:
@@ -187,6 +210,12 @@ def main():
             else:
                 trim_radius = 0
             if show_radial_plots:
+                # display = DS9('intelmask')
+                # display.set('regions delete all')
+                # for idx in mag_select[0]:
+                #    display.set('regions', f'image; circle({ref_catalog["XWIN_IMAGE"][idx]},'
+                #                           f'{ref_catalog["YWIN_IMAGE"][idx]},10)')
+
                 fig = pyl.figure()
                 sp = fig.add_subplot(111)
                 pyl.scatter(r_reshape, med_vals-sky, alpha=0.1)
