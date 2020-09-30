@@ -3,11 +3,19 @@ import contextlib
 import logging
 import os
 from io import BytesIO
-
+from .version import __version__
 import numpy as np
 from astropy.io import fits
 from matplotlib import pyplot as pyl
-from pyds9 import DS9
+
+# in debug mode display images using pyds9
+# if pyds9 exists
+try:
+    from pyds9 import DS9
+    DISPLAY_IMAGE=False
+except ImportError:
+    DISPLAY_IMAGE=False
+
 from trippy import scamp
 
 from . import util
@@ -88,7 +96,7 @@ def main():
     radius_pad = args.padding_radius
     psf_fwhm = args.psf_fwhm
 
-    show_radial_plots = logging.getLogger().getEffectiveLevel() < logging.INFO
+    show_diagnostic_plots = logging.getLogger().getEffectiveLevel() < logging.INFO
 
     input_rerun, output_rerun = util.parse_rerun(args.basedir, args.rerun)
     logging.debug(f"Setting input_rerun to {input_rerun}")
@@ -109,6 +117,17 @@ def main():
     variance = hdulist[3]
     abs_upper_limit = args.clip * (np.nanpercentile(variance.data, 40)) ** 0.5
 
+    if show_diagnostic_plots and DISPLAY_IMAGE:
+        display = DS9('intelmask')
+        display.set('zscale')
+        with contextlib.closing(BytesIO()) as newFitsFile:
+            fits.writeto(newFitsFile, data=diff.data, header=diff.header)
+            newfits = newFitsFile.getvalue()
+            display.set('fits', newfits, len(newfits))
+    else:
+        display = None
+
+    
     logging.info(f'Masking {diff_fn} around bright stars found in {corr_fn} with fwhm of {psf_fwhm}')
 
     # cutout parameters
@@ -154,23 +173,6 @@ def main():
     trim_radii = []
     trim_radius = 0
 
-    if show_radial_plots:
-        display = DS9('intelmask')
-        display.set('zscale')
-        with contextlib.closing(BytesIO()) as newFitsFile:
-            fits.writeto(newFitsFile, data=variance.data, header=variance.header)
-            newfits = newFitsFile.getvalue()
-            display.set('fits', newfits, len(newfits))
-        display.set('frame new')
-        with contextlib.closing(BytesIO()) as newFitsFile:
-            fits.writeto(newFitsFile, data=corr.data, header=corr.header)
-            newfits = newFitsFile.getvalue()
-            display.set('fits', newfits, len(newfits))
-        display.set('frame new')
-        with contextlib.closing(BytesIO()) as newFitsFile:
-            fits.writeto(newFitsFile, data=diff.data, header=diff.header)
-            newfits = newFitsFile.getvalue()
-            display.set('fits', newfits, len(newfits))
 
     for mag_limit in mags:
 
@@ -209,13 +211,17 @@ def main():
                 trim_radius = np.max(r_reshape[trim_w])
             else:
                 trim_radius = 0
-            if show_radial_plots:
-                # display = DS9('intelmask')
-                # display.set('regions delete all')
-                # for idx in mag_select[0]:
-                #    display.set('regions', f'image; circle({ref_catalog["XWIN_IMAGE"][idx]},'
-                #                           f'{ref_catalog["YWIN_IMAGE"][idx]},10)')
 
+            if show_diagnostic_plots and display is not None:
+                logging.debug(f"Marking sources with {mag_limit} < MAG < {mag_limit + mag_bin_size} on diff")
+                display.set('regions delete all')
+                for idx in mag_select[0]:
+                    display.set('regions',
+                                f'image; circle({ref_catalog["XWIN_IMAGE"][idx]},'
+                                f'{ref_catalog["YWIN_IMAGE"][idx]},10)')
+
+            if show_diagnostic_plots:
+                logging.debug(f"Median radial flux for {mag_limit} < MAG < {mag_limit + mag_bin_size}")
                 fig = pyl.figure()
                 sp = fig.add_subplot(111)
                 pyl.scatter(r_reshape, med_vals-sky, alpha=0.1)
@@ -233,7 +239,7 @@ def main():
 
         trim_radii.append(trim_radius)
 
-        logging.debug(f'Trim radii list: {trim_radii}')
+        logging.debug(f'Trim radius for {mag_limit}:{mag_limit+mag_bin_size} -> {trim_radii[-1]}')
 
     num_trim_pix = 0
     for index in range(len(mags)):
@@ -258,6 +264,7 @@ def main():
         # pull out the part of mask_data that corresponds to the original image area.
         hdulist[1].data = mask_data[cut_width:cut_width+A, cut_width:cut_width+B]
         output_filename = diff_fn.replace(args.exptype, 'MASKED')
+        hdulist[0].header['SOFTWARE'] = ( f'{__name__}-{__version__}', 'Version of daomop')
         hdulist.writeto(output_filename, overwrite=True)
 
     frac = num_trim_pix/(A*B)
