@@ -54,8 +54,8 @@ do
 			     --pointing ${pointing} \
 			     --ccd ${chip} \
 			     --visit ${visit} \
-			     --clip 3 \
-			     --pad 0 \
+			     --clip 12 \
+			     --pad 3 \
 			     --psf-fwhm ${fwhm}  \
 			     --log-level INFO
 done
