@@ -89,8 +89,8 @@ c a e i Omega omega M H epoch_M epoch RA DEC earth_delta earth_mag X Y Z lorri_m
       gb = 0.15
 
 c     Date range to compute encounter condition for
-      jday_start = 2459123.5
-      jday_end = 2460584.5
+      jday_start = 2459123.5 + 365
+      jday_end = 2460584.5 + 365
       jday_step = 1
 
       CALL getarg(1, distri_file)
@@ -125,7 +125,7 @@ c     Skip First line (should be header line)
          return
       end if
 c     First possible date for course change.
-      trj_jday = obs_jday + 30*4
+      trj_jday = obs_jday + 30*6
       call ObsPos(-lun_trajectory, trj_jday, 
      $     obpos, tmp, ros, ierr)
       call ObsPos(code, obs_jday, 
