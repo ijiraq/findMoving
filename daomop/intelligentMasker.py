@@ -167,8 +167,8 @@ def main():
 
     ref_catalog = get_ref_catalog(corr_hdulist, psf_fwhm)
     mag_bin_size = 0.5
-    min_mag = np.min(ref_catalog['MAG_AUTO'])
-    max_mag = np.max(ref_catalog['MAG_AUTO'])
+    min_mag = max(-100, np.min(ref_catalog['MAG_AUTO']))
+    max_mag = min(100, np.max(ref_catalog['MAG_AUTO']))
     mags = np.arange(max_mag, min_mag, -mag_bin_size/2)
     trim_radii = []
     trim_radius = 0

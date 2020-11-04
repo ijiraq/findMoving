@@ -35,7 +35,9 @@ mcp "${vos_uri}/DIFFS/${pointing}/DIFF-${ccd}.*" ./  && tar xvf DIFF-${ccd}.* &&
 
 # pull the CORR tar ball for this CCD from DIFFS/pointing directory on VOSpace.
 mcp "${vos_uri}/CORR/${pointing}/CORR-${ccd}.*" ./ && tar xvf CORR-${ccd}.* && rm CORR-${ccd}.*  || exit
-# for the MAY data the plant directory was the process directory.
+
+# pull the MASK tar ball for this CCD from DIFFS/pointing directory on VOSpace to only redo missing ones.
+mcp "${vos_uri}/DIFFS/${pointing}/MASKED-${ccd}.*" ./ && tar xvf MASKED-${ccd}.* && rm MASKED-${ccd}.*  
 
 # Build the MASKED versions of the files.
 for fullpath in ${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}/DIFFEXP-*-${ccd}.fits
@@ -49,6 +51,15 @@ do
     #visit=${visit##0}
     fwhm=$(grep "${visit#0} ${ccd}" psf_fwhm.txt | awk ' { print $3 } ')
     [ "Z"${fwhm} == "Z" ] && fwhm=5.0
+    echo "daomop-intelligentMasker ${basedir} \
+	 		     --rerun ${processCcdOutputs}:${diff_rerun} \
+			     --pointing ${pointing} \
+			     --ccd ${chip} \
+			     --visit ${visit}	    \
+			     --clip 12 \
+			     --pad 3 \
+			     --psf-fwhm	 ${fwhm}  \
+			     --log-level  INFO"
     daomop-intelligentMasker ${basedir} \
 			     --rerun ${processCcdOutputs}:${diff_rerun} \
 			     --pointing ${pointing} \
@@ -60,7 +71,7 @@ do
 			     --log-level INFO
 done
 
-echo "Putting MASKED version to VOSpace"
+echo "Putting MASKED versions to VOSpace"
 tarfile=MASKED-${ccd}.tar
 masked_dir=${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}
 tar czf ${tarfile} ${masked_dir}/MASKED*${ccd}.fits  || exit
