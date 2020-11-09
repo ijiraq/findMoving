@@ -122,7 +122,10 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     logging.info(f'stacking at rate/angle set: {rate}')
     ccd_data = {}
     for hdu in hdus:
-        wcs_header = hdu[1].header.copy()
+        if 'astheads' in kwargs:
+            wcs_header = kwargs['astheads'][hdu[0]['image']]
+        else:
+            wcs_header = hdu[1].header.copy()
         dt = (mid_exposure_mjd(hdu[0]) - reference_date)
         if rate is not None:
             wcs_header['CRVAL1'] += (rate['dra'] * dt).to('degree').value
@@ -427,6 +430,20 @@ def main():
     logging.info(f'Loading all images matching pattern: {input_rerun}')
     images = np.array(get_image_list(input_rerun, args.exptype, ccd=args.ccd,
                                      visit=args.visit, filters=[args.pointing, args.filter]))
+
+    # check if there are astrometric headers to overwrite the WCS in the HDU
+    ast_path = os.path.join(input_rerun.replace('diff', 'asthead'), 'mega')
+    astheads = {}
+    for image in images:
+        filename = os.path.basename(image)
+        ast_filename = os.path.join(ast_path, 
+                                    filename.replace('DIFFEXP', 'CORR').replace('.fits','.mega.head'))
+        if os.access(ast_filename, os.R_OK):
+            astheads[image] = fits.Header.fromtextfile(ast_filename)
+        else:
+            astheads[image] = None
+            logging.warning(f"Failed to get astheader for {image}")
+        
     if not len(images) > 0:
         raise OSError(f'No images found using {input_rerun}')
 
@@ -472,7 +489,11 @@ def main():
             reference_hdu = fits.open(sub_images[reference_idx])
             reference_filename = os.path.splitext(os.path.basename(sub_images[reference_idx]))[0][8:]
 
-        hdus = [fits.open(image) for image in sub_images]
+        hdus = []
+        for image in sub_images:
+            hdulist = fits.open(image)
+            hdulist[0].header['IMAGE'] = image
+            hdus.append(hdulist)        
 
         # set the reference image
         logging.debug(f'Will use {reference_filename} as base name for storage.')
@@ -481,7 +502,7 @@ def main():
         if not args.swarp and args.rectify:
             # Need to project all images to same WCS before passing to stack.
             logging.info('Swarp-ing the input images to a common projection and reference frame.')
-            for idx, image in enumerate(swarp(hdus, reference_hdu, None)):
+            for idx, image in enumerate(swarp(hdus, reference_hdu, None, astheads=astheads)):
                 hdus[idx][1].data = image.data
                 hdus[idx][1].header = image.header
                 hdus[idx][2].data = image.mask
