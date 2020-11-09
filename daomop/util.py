@@ -28,7 +28,7 @@ def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=None):
     visit = visit is not None and f"{visit:07d}" or "???????"
     ccd = ccd is not None and f"{ccd:03d}" or "???"
     pattern = f"{exptype}-{visit}-{ccd}.f*"
-    logging.info(f"Searching for data in {Path(dirname).resolve()} using pattern: {pattern}")
+    logging.info(f"Searching for data in {dirname} -> {Path(dirname).resolve()} using pattern: {pattern}")
     for path in Path(dirname).rglob(f'{pattern}'):
         if not re.search(exptype+'-[0-9]{7}-[0-9]{3}.fits', path.name):
             continue
