@@ -114,22 +114,23 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     logging.debug(f"Called with {kwargs}")
     if stacking_mode not in ['MEDIAN', 'MEAN']:
         logging.warning(f'{stacking_mode} not available for swarp stack. Setting to MEAN')
-        stacking_mode = 'MEAN'
+        stacking_mode = 'MEDIAN'
     if hdu_idx is None:
         hdu_idx = HSC_HDU_MAP
     reference_date = mid_exposure_mjd(reference_hdu[0])
+    reference_header = kwargs['astheads'][reference_hdu[0].header['IMAGE']]
+    reference_wcs = WCS(reference_header)
     stack_input = []
     logging.info(f'stacking at rate/angle set: {rate}')
     ccd_data = {}
+    
     for hdu in hdus:
-        if 'astheads' in kwargs:
-            wcs_header = kwargs['astheads'][hdu[0]['image']]
-        else:
-            wcs_header = hdu[1].header.copy()
+        wcs_header = kwargs['astheads'][hdu[0].header['IMAGE']]
+        # wcs_header = hdu[1].header.copy()
         dt = (mid_exposure_mjd(hdu[0]) - reference_date)
         if rate is not None:
-            wcs_header['CRVAL1'] += (rate['dra'] * dt).to('degree').value
-            wcs_header['CRVAL2'] += (rate['ddec'] * dt).to('degree').value
+            wcs_header['CRVAL1'] -= (rate['dra'] * dt).to('degree').value
+            wcs_header['CRVAL2'] -= (rate['ddec'] * dt).to('degree').value
         for layer in hdu_idx:
             data = hdu[hdu_idx[layer]].data
             if layer == 'variance':
@@ -137,15 +138,15 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
             elif layer == 'mask':
                 data = bitfield_to_boolean_mask(data, ignore_flags=STACK_MASK, flip_bits=True)
             ccd_data[layer] = data
-        logging.debug(f'Adding {hdu[0]} to projected stack.')
+        logging.info(f'Adding {hdu[0].header["IMAGE"]} to projected stack.')
+        # reference_header = referece_hdu[1].header
         stack_input.append(wcs_project(CCDData(ccd_data['image'],
                                                mask=ccd_data['mask'],
                                                header=wcs_header,
                                                wcs=WCS(wcs_header),
                                                unit='adu',
                                                uncertainty=ccd_data['variance']),
-                                       WCS(reference_hdu[1].header)))
-        logging.debug(f'{stack_input[-1].header}')
+                                       reference_wcs))
     if rate is not None:
         combiner = Combiner(stack_input)
         if stacking_mode == 'MEDIAN':
@@ -153,7 +154,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
         else:
             stacked_image = combiner.average_combine()
         return fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
-                             fits.ImageHDU(data=stacked_image.data, header=reference_hdu[1].header)])
+                             fits.ImageHDU(data=stacked_image.data, header=reference_header)])
     else:
         return stack_input
 
@@ -194,13 +195,17 @@ def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
     # Add offset needed to align the corner of the image with the reference image.
     dra -= (ref_skycoord[0] - sky_coord[0])*units.degree
     ddec -= (ref_skycoord[1] - sky_coord[1])*units.degree
-    _x, _y = w.wcs_world2pix(sky_coord[0], sky_coord[1], 0)
-    c1 = _x, _y
-    _x, _y = w.wcs_world2pix(sky_coord[0]+dra.to('degree').value,
-                             sky_coord[1]+ddec.to('degree').value, 0)
-    c2 = _x, _y
-    dx = int(rf*(c2[0]-c1[0]))
-    dy = int(rf*(c2[1]-c1[1]))
+    try:
+        _x, _y = w.wcs_world2pix(sky_coord[0], sky_coord[1], 0)
+        c1 = _x, _y
+        _x, _y = w.wcs_world2pix(sky_coord[0]+dra.to('degree').value,
+                                 sky_coord[1]+ddec.to('degree').value, 0)
+        c2 = _x, _y
+        dx = int(rf*(c2[0]-c1[0]))
+        dy = int(rf*(c2[1]-c1[1]))
+    except Exception as ex:
+        logging.warning(ex)
+        return None, None
     logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
     return dx, dy
 
@@ -439,9 +444,9 @@ def main():
         ast_filename = os.path.join(ast_path, 
                                     filename.replace('DIFFEXP', 'CORR').replace('.fits','.mega.head'))
         if os.access(ast_filename, os.R_OK):
-            astheads[image] = fits.Header.fromtextfile(ast_filename)
+            astheads[filename] = fits.Header.fromtextfile(ast_filename)
         else:
-            astheads[image] = None
+            astheads[filename] = None
             logging.warning(f"Failed to get astheader for {image}")
         
     if not len(images) > 0:
@@ -476,7 +481,9 @@ def main():
             # stride the image list
             sub_images = images[index::args.n_sub_stacks]
             reference_idx = int(len(images) // 2)
+            reference_image = sub_images[reference_idx]
             reference_hdu = fits.open(images[reference_idx])
+            reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
             reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         else:
             # group images by time
@@ -486,13 +493,15 @@ def main():
             end_idx = int(min(len(images), end_idx))
             sub_images = images[start_idx:end_idx]
             reference_idx = int(len(sub_images) // 2)
+            reference_image = os.path.basename(sub_images[reference_idx])
             reference_hdu = fits.open(sub_images[reference_idx])
+            reference_hdu[0].header['IMAGE'] = reference_image
             reference_filename = os.path.splitext(os.path.basename(sub_images[reference_idx]))[0][8:]
 
         hdus = []
         for image in sub_images:
             hdulist = fits.open(image)
-            hdulist[0].header['IMAGE'] = image
+            hdulist[0].header['IMAGE'] = os.path.basename(image)
             hdus.append(hdulist)        
 
         # set the reference image
@@ -502,7 +511,7 @@ def main():
         if not args.swarp and args.rectify:
             # Need to project all images to same WCS before passing to stack.
             logging.info('Swarp-ing the input images to a common projection and reference frame.')
-            for idx, image in enumerate(swarp(hdus, reference_hdu, None, astheads=astheads)):
+            for idx, image in enumerate(swarp(hdus, reference_hdu, None)):
                 hdus[idx][1].data = image.data
                 hdus[idx][1].header = image.header
                 hdus[idx][2].data = image.mask
@@ -511,18 +520,23 @@ def main():
         if args.centre is not None:
             centre = SkyCoord(args.centre[0], args.centre[1], unit='degree')
             box_size = args.section_size//2
-            logging.debug(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
+            logging.info(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
             for hdu in hdus:
-                w = WCS(hdu[1].header)
-                x, y = w.all_world2pix(args.centre[0], args.centre[1], 0)
-                logging.debug(f'{centre} -> {x},{y}')
+                image = hdu[0].header['IMAGE']
+                w = WCS(astheads[image])
+                try:
+                    x, y = w.all_world2pix(args.centre[0], args.centre[1], 0)
+                except:
+                    hdu = None
+                    continue
+                logging.info(f'{image} {centre.to_string(style="hmsdms", sep=":")} -> {x},{y}')
                 x1 = int(max(0, x - box_size))
                 x2 = int(min(hdu[1].header['NAXIS1'], x1 + 2*box_size))
                 x1 = int(max(0, x2 - 2*box_size))
                 y1 = int(max(0, y - box_size))
                 y2 = int(min(hdu[1].header['NAXIS2'], y1 + 2*box_size))
                 y1 = int(max(0, y2 - 2*box_size))
-                logging.debug(f'{hdu[0].header["FRAMEID"]} -> [{y1}:{y2},{x1}:{x2}]')
+                logging.info(f'{hdu[0].header["FRAMEID"]} -> [{y1}:{y2},{x1}:{x2}]')
                 for idx in range(1, 4):
                     try:
                         data = hdu[idx].data[y1:y2, x1:x2]
@@ -534,8 +548,14 @@ def main():
                     hdu[idx].data = data
                     hdu[idx].header['XOFFSET'] = x1
                     hdu[idx].header['YOFFSET'] = y1
-                    hdu[idx].header['CRPIX1'] -= x1
-                    hdu[idx].header['CRPIX2'] -= y1
+                astheads[image]['CRPIX1'] -= x1
+                astheads[image]['CRPIX2'] -= y1
+
+        hdus2 = []
+        for hdu in hdus:
+            if hdu is not None:
+                hdus2.append(hdu)
+        hdus = hdus2
 
         if args.clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
@@ -579,7 +599,7 @@ def main():
                 logging.warning(f'{output_filename} exists, skipping')
                 continue
             output = stack_function(hdus, reference_hdu, {'dra': dra, 'ddec': ddec},
-                                    stacking_mode=args.stack_mode, section_size=args.section_size)
+                                    stacking_mode=args.stack_mode, section_size=args.section_size, astheads=astheads)
             logging.debug(f'Got stack result {output}, writing to {output_filename}')
             # Keep a history of which visits when into the stack.
             output[0].header['SOFTWARE'] = f'{__name__}-{__version__}'

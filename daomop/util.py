@@ -45,6 +45,10 @@ def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=None):
 
 def get_provisional_name(pointing, ccd, index, **kwargs):
     logging.debug(f"{pointing} {ccd} {index} {kwargs}")
+    try:
+        index = int(index)
+    except:
+        index = 1
     value = int(f"{ccd:03d}{index:04d}")
     return f"P{str(pointing)[-2:]:2s}{hex(value)[2:]:4s}"
 

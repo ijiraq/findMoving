@@ -47,6 +47,7 @@ def main(orbit=None, **kwargs):
     """
     from daomop import daophot
     pointing = kwargs['pointing']
+    index = kwargs['index']
     ccd = kwargs['ccd']
     rate = kwargs['rate']
     angle = kwargs['angle']
@@ -67,7 +68,7 @@ def main(orbit=None, **kwargs):
     for idx in range(nimg):
         expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{idx}'
         image = f'{expnum}p{ccd:02d}.fits'
-        url = f'vos:NewHorizons/dbimages/{expnum}/ccd{ccd:02d}/{image}'
+        url = f'vos:NewHorizons/{index}/dbimages/{expnum}/ccd{ccd:02d}/{image}'
         try:
             if not os.access(image, os.R_OK):
                 # get from VOSpace is not already on disk
@@ -101,12 +102,15 @@ def main(orbit=None, **kwargs):
                                f'{uncertainty_ellipse[0]}",'
                                f'{uncertainty_ellipse[1]}",'
                                f'{uncertainty_ellipse[2]})')
+            ds9.set(f'pan to {ra} {dec} wcs icrs')
     ds9.set('frame match wcs')
     ds9.set('frame first')
     obs = {}
     # Build a map of allowed key strokes
     allowed_keys = {'x': ('', 'centroid at this location'),
                     'q': ('', 'Quit this image set'),
+                    'p': ('', 'Previous frame'),
+                    'n': ('', 'Next frame'),
                     'r': ('', 'Create a NULL observation.')}
     for key in [x.split() for x in config.read("MPC.NOTE1OPTIONS")]:
         allowed_keys[key[0].lower()] = key
@@ -124,6 +128,9 @@ def main(orbit=None, **kwargs):
 
         if key == 'n':
             ds9.set('frame next')
+            continue
+        if key == 'p':
+            ds9.set('frame previous')
             continue
 
         if key not in allowed_keys:
@@ -206,7 +213,8 @@ def main(orbit=None, **kwargs):
 def _main(**kwargs):
     start_ds9('validate')
     if 'provisional_name' not in kwargs:
-        kwargs['provisional_name'] = util.get_provisional_name(**kwargs)
+    #    kwargs['provisional_name'] = util.get_provisional_name(**kwargs)
+         kwargs['provisional_name'] = kwargs['index']
     ast_filename = f"{kwargs['provisional_name']}.mpc"
     logging.info(f"Attempting measures of {kwargs['provisional_name']}, will write to {ast_filename}")
     obs = {}
@@ -259,7 +267,8 @@ def get_valid_obs_count(observations):
 
 def main_args(args):
     kwargs = vars(args)
-    kwargs['p_name'] = util.get_provisional_name(**kwargs)
+    kwargs['p_name'] = kwargs['index']
+    # kwargs['p_name'] = util.get_provisional_name(**kwargs)
     _main(**kwargs)
 
 
@@ -304,7 +313,7 @@ def run():
     parser_args = subparsers.add_parser('args', help='a help')
     parser_args.add_argument('pointing', type=int)
     parser_args.add_argument('ccd', type=int)
-    parser_args.add_argument('index', help="index of the detection", type=int)
+    parser_args.add_argument('index', help="index of the detection" )
     parser_args.add_argument('x', type=float)
     parser_args.add_argument('y', type=float)
     parser_args.add_argument('rate', type=float)
