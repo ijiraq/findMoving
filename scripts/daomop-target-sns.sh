@@ -34,7 +34,7 @@ else
     input="processCcdOutputs"
 fi
 vosbase="vos:NewHorizons/S20A-OT04/"
-dbimages="vos:NewHorizons/dbimages/"
+dbimages="vos:NewHorizons/${index}/dbimages/"
 output="sns" 
 filter="HSC-R2"
 section=750
