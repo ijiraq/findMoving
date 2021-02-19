@@ -1,5 +1,7 @@
 from setuptools import setup, find_packages
 
+# install the daomop! -- test
+
 version = {}
 with open("daomop/version.py") as fp:
     exec(fp.read(), version)
@@ -12,6 +14,7 @@ setup(
     scripts=['scripts/daomop-stack-cmd',
              'scripts/daomop-run-sns.sh',
              'scripts/daomop-target-sns.sh',
+             'scripts/daomop-get-diffs.sh',
              'scripts/daomop-maskdiffs.sh',
              'scripts/daomop-filesync.sh'],
     package_data={'daomop': ['*.json']},

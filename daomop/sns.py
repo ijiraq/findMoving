@@ -114,7 +114,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     logging.debug(f"Called with {kwargs}")
     if stacking_mode not in ['MEDIAN', 'MEAN']:
         logging.warning(f'{stacking_mode} not available for swarp stack. Setting to MEAN')
-        stacking_mode = 'MEDIAN'
+        stacking_mode = 'MEAN'
     if hdu_idx is None:
         hdu_idx = HSC_HDU_MAP
     reference_date = mid_exposure_mjd(reference_hdu[0])
@@ -244,7 +244,7 @@ def remap_array(image_data, dest_bounds, source_bounds):
         image_data[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
 
 
-def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024):
+def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024, **kwargs):
     """
     Original pixel grid expansion shift+stack code from wes.
 
@@ -437,7 +437,7 @@ def main():
                                      visit=args.visit, filters=[args.pointing, args.filter]))
 
     # check if there are astrometric headers to overwrite the WCS in the HDU
-    ast_path = os.path.join(input_rerun.replace('diff', 'asthead'), 'mega')
+    ast_path = os.path.join(input_rerun.replace('processCcdOutputs', 'diff').replace('diff', 'asthead'), 'mega')
     astheads = {}
     for image in images:
         filename = os.path.basename(image)
@@ -446,8 +446,8 @@ def main():
         if os.access(ast_filename, os.R_OK):
             astheads[filename] = fits.Header.fromtextfile(ast_filename)
         else:
-            astheads[filename] = None
-            logging.warning(f"Failed to get astheader for {image}")
+            astheads[filename] = fits.open(image)[1].header
+            logging.warning(f"Failed to get astheader for {ast_filename} using {filename}")
         
     if not len(images) > 0:
         raise OSError(f'No images found using {input_rerun}')
@@ -480,11 +480,11 @@ def main():
         if not args.group:
             # stride the image list
             sub_images = images[index::args.n_sub_stacks]
-            reference_idx = int(len(images) // 2)
-            reference_image = sub_images[reference_idx]
-            reference_hdu = fits.open(images[reference_idx])
-            reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
-            reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
+            # reference_idx = int(len(images) // 2)
+            # reference_image = sub_images[reference_idx]
+            # reference_hdu = fits.open(images[reference_idx])
+            # reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
+            # reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         else:
             # group images by time
             start_idx = len(images)//args.n_sub_stacks*index
@@ -492,11 +492,11 @@ def main():
             end_idx = len(images)//args.n_sub_stacks*(index+1)
             end_idx = int(min(len(images), end_idx))
             sub_images = images[start_idx:end_idx]
-            reference_idx = int(len(sub_images) // 2)
-            reference_image = os.path.basename(sub_images[reference_idx])
-            reference_hdu = fits.open(sub_images[reference_idx])
-            reference_hdu[0].header['IMAGE'] = reference_image
-            reference_filename = os.path.splitext(os.path.basename(sub_images[reference_idx]))[0][8:]
+            # reference_idx = int(len(sub_images) // 2)
+            # reference_image = os.path.basename(sub_images[reference_idx])
+            # reference_hdu = fits.open(sub_images[reference_idx])
+            # reference_hdu[0].header['IMAGE'] = reference_image
+            # reference_filename = os.path.splitext(os.path.basename(sub_images[reference_idx]))[0][8:]
 
         hdus = []
         for image in sub_images:
@@ -505,8 +505,8 @@ def main():
             hdus.append(hdulist)        
 
         # set the reference image
-        logging.debug(f'Will use {reference_filename} as base name for storage.')
-        logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
+        # logging.debug(f'Will use {reference_filename} as base name for storage.')
+        # logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
 
         if not args.swarp and args.rectify:
             # Need to project all images to same WCS before passing to stack.
@@ -550,6 +550,9 @@ def main():
                     hdu[idx].header['YOFFSET'] = y1
                 astheads[image]['CRPIX1'] -= x1
                 astheads[image]['CRPIX2'] -= y1
+
+        reference_idx = int(len(hdus) // 2)
+        reference_hdu = hdus[reference_idx]
 
         hdus2 = []
         for hdu in hdus:

@@ -69,9 +69,10 @@ def main(**kwargs):
                 wcs_header = fits.Header.fromtextfile(wcs_header_filename)
                 wcs_dict[image] = WCS(wcs_header)
             except Exception as ex:
-                logging.warning(f"Failure opening {wcs_header_filename}")
-                logging.error(ex)
-                continue
+                wcs_header = header
+                wcs_header_filename = image
+                wcs_dict[image] = WCS(wcs_header)
+                logging.warning(f"using original wcs")
             if orbit is not None:
                 orbit.predict(obsdate)
                 ra = orbit.coordinate.ra.degree
