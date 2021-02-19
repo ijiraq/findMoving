@@ -13,7 +13,7 @@ def run():
     parser = argparse.ArgumentParser()
     parser.add_argument('mpcfile', type=str)
     parser.add_argument('trackfile', type=str)
-    parser.add_argument('--skycat-file', type=str, default='skycat.txt')
+    parser.add_argument('--skycat-file', type=str, default='skycat.csv')
     args = parser.parse_args()
     main(**vars(args))
 
@@ -25,7 +25,7 @@ def main(mpcfile, trackfile, skycat_file):
     :param skycat_file: Name of file with table of field locations.
     :return:
     """
-    skycat = Table.read(skycat_file, format='ascii.commented_header')
+    skycat = Table.read(skycat_file, format='csv')
     required_names = ['mjdobs', 'ramin', 'ramax', 'decmin', 'decmax', 'pointing', 'ccd']
     for name in required_names:
         if name not in skycat.colnames:
@@ -47,7 +47,10 @@ def main(mpcfile, trackfile, skycat_file):
 
     orbit = BKOrbit(None, ast_filename=mpcfile)
     name = orbit.observations[0].provisional_name
-    pointing, ccd, index = util.from_provisional_name(name)
+    try:
+        pointing, ccd, index = util.from_provisional_name(name)
+    except:
+        index = name
     for row in skycat:
         orbit.predict(Time(row['mjdobs'], format='mjd'))
         coord1 = orbit.coordinate
