@@ -1,5 +1,7 @@
 from setuptools import setup, find_packages
 
+# install the daomop!
+
 version = {}
 with open("daomop/version.py") as fp:
     exec(fp.read(), version)
