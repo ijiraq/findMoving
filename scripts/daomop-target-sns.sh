@@ -43,9 +43,14 @@ dbimages="vos:NewHorizons/dbimages/${pointing}/${chip}"
 
 # Get from VOSpace the diff images to be stacked for this sources
 \rm -r ${basedir}/rerun/diff/deepDiff
-vcp  vos:NewHorizons/S20A-OT04/DIFFS/${pointing}/DIFF-${pointing}-${chip}_masked.tar ./
-tar xvf DIFF-${pointing}-${chip}_masked.tar
-rm DIFF-${pointing}-${chip}_masked.tar
+tardir="vos:NewHorizons/S20A-OT04/DIFFS/${pointing}"
+for tarfile in "DIFF-${pointing}-${chip}_masked.tar" "DIFF-${chip}.tar"
+do
+    vcp  ${tardir}/${tarfile} ./ && break
+done
+[ -f ${tarfile} ] || ( echo "Failed to retrieve DIFFS" && exit -1 )
+tar xvf ${tarfile}
+rm ${tarfile}
 for file in $(find ./HSC_All -name "*_masked.fits" -print)
 do
     f=`echo ${file} | sed -e 's/_masked//'`
