@@ -205,9 +205,6 @@ def main(**kwargs):
             logging.warning(ex)
             logging.warning(f"Got: {ra},{dec}")
 
-            
-            
-
         record_key = os.path.basename(image)
         obs[record_key] = (Observation(
             null_observation=key == 'r',

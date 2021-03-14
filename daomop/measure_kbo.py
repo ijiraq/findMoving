@@ -5,7 +5,6 @@ import argparse
 import logging
 import os
 
-import numpy
 import pyds9
 from astropy.io import fits
 from astropy.table import Table
@@ -14,7 +13,9 @@ from astropy.wcs import WCS
 from mp_ephem import BKOrbit, EphemerisReader
 from mp_ephem.ephem import Observation
 from vos import Client
+import time
 
+from . import daophot
 from . import settings
 from . import util
 
@@ -24,7 +25,18 @@ field_ids = {3068: 'P68', 3071: 'P71', 3072: 'P72'}
 
 
 def start_ds9(name):
-    ds9 = pyds9.DS9(target=name)
+    c = 0
+    while c < 10:
+        try:
+            ds9 = pyds9.DS9(target=name)
+            break
+        except Exception as ex:
+            print(f"{ex}")
+            name='validate'
+            c +=1
+            print("Trying again in 10 seconds")
+            time.sleep(5)
+
     levels = ['INIT', 'PREF']
     for level in levels:
         setting = config.read(f"DS9.{level}")
@@ -38,48 +50,8 @@ def get_ds9(name):
     return pyds9.DS9(target=name, start=False)
 
 
-def main(orbit=None, **kwargs):
-    """
-
-    :param kwargs:
-    :type orbit: BKOrbit
-    :return:
-    """
-    from daomop import daophot
-    pointing = kwargs['pointing']
-    index = kwargs['index']
-    ccd = kwargs['ccd']
-    rate = kwargs['rate']
-    angle = kwargs['angle']
-    ra = kwargs['ra']
-    dec = kwargs['dec']
-    p_name = kwargs['p_name']
-    discovery = kwargs['discovery']
-    nimg = kwargs['nimg']
-    # orbit = kwargs.get('orbit', None)
-    # isinstance(BKOrbit, orbit)
-    client = Client()
-
-    int_rate = int(rate * 10)
-    int_angle = int((angle % 360) * 10)
-    images = []
-    ds9 = get_ds9('validate')
-    # Load the 3 images associated with this point/ccd/rate/angle set.
-    for idx in range(nimg):
-        expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{idx}'
-        image = f'{expnum}p{ccd:02d}.fits'
-        url = f'vos:NewHorizons/{index}/dbimages/{expnum}/ccd{ccd:02d}/{image}'
-        try:
-            if not os.access(image, os.R_OK):
-                # get from VOSpace is not already on disk
-                client.copy(url, image)
-        except Exception as ex:
-            logging.error(str(ex))
-            # Return empty set on VOSpace copy error.
-            return {}
-        images.append(image)
-
-    wcs_dict = {}
+def load_images(images, ra, dec, wcs_dict, orbit=None, target='validate'):
+    ds9 = get_ds9(target)
     ds9.set('frame delete all')
     ds9.set('zscale')
     for image in images:
@@ -105,7 +77,10 @@ def main(orbit=None, **kwargs):
             ds9.set(f'pan to {ra} {dec} wcs icrs')
     ds9.set('frame match wcs')
     ds9.set('frame first')
-    obs = {}
+
+
+def measure_image(p_name, images, wcs_dict, discovery=False, target='validate'):
+    ds9 = get_ds9(target)
     # Build a map of allowed key strokes
     allowed_keys = {'x': ('', 'centroid at this location'),
                     'q': ('', 'Quit this image set'),
@@ -115,6 +90,7 @@ def main(orbit=None, **kwargs):
     for key in [x.split() for x in config.read("MPC.NOTE1OPTIONS")]:
         allowed_keys[key[0].lower()] = key
 
+    obs = {}
     while True:
         try:
             result = ds9.get('iexam key coordinate image')
@@ -124,7 +100,7 @@ def main(orbit=None, **kwargs):
             logging.debug(f"DS9 Returned: {result} -> {key} {x} {y}")
         except Exception as ex:
             logging.debug(f"DS9 get exception: {ex}")
-            continue
+            break
 
         if key == 'n':
             ds9.set('frame next')
@@ -180,6 +156,8 @@ def main(orbit=None, **kwargs):
         obsdate = Time(Time(fits.open(image)[0].header['DATE-AVG'], scale='tai').mjd,
                        format='mjd',
                        precision=6).mpc
+
+        ra = dec = "UNDEFINED"
         try:
             ra, dec = wcs_dict[image].all_pix2world(cen_x, cen_y, 1)
         except Exception as ex:
@@ -187,10 +165,11 @@ def main(orbit=None, **kwargs):
             logging.warning(ex)
             logging.warning(f"Got: {ra},{dec}")
 
-        record_key = obsdate[0:13]
-        obs[record_key] = (Observation(
+        record_key = obsdate
+        obs[record_key] = Observation(
             null_observation=key == 'r',
             provisional_name=p_name,
+            comment="{} {} {}".format(*util.from_provisional_name(p_name)),
             note1=note1,
             note2='C',
             date=obsdate,
@@ -201,20 +180,61 @@ def main(orbit=None, **kwargs):
             band='r',
             observatory_code='568',
             discovery=discovery,
-            comment=None,
             xpos=x,
             ypos=y,
             frame=image,
-            astrometric_level=0))
-        discovery = False
+            astrometric_level=0)
+
+    return obs
+
+
+def main(orbit=None, **kwargs):
+    """
+
+    :param kwargs:
+    :type orbit: BKOrbit
+    :return:
+    """
+    pointing = kwargs['pointing']
+    index = kwargs['index']
+    ccd = kwargs['ccd']
+    rate = kwargs['rate']
+    angle = kwargs['angle']
+    ra = kwargs['ra']
+    dec = kwargs['dec']
+    p_name = kwargs['p_name']
+    discovery = kwargs['discovery']
+    nimg = kwargs['nimg']
+    client = Client()
+
+    int_rate = int(rate * 10)
+    int_angle = int((angle % 360) * 10)
+    images = []
+    # Load the 3 images associated with this point/ccd/rate/angle set.
+    for idx in range(nimg):
+        expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{idx}'
+        image = f'{expnum}p{ccd:02d}.fits'
+        dbimages = f"vos:NewHorizons/dbimages/{pointing:05d}/{ccd:03d}"
+        url = f'{dbimages}/{expnum}/ccd{ccd:02d}/{image}'
+        try:
+            if not os.access(image, os.R_OK):
+                # get from VOSpace is not already on disk
+                client.copy(url, image)
+        except Exception as ex:
+            logging.error(str(ex))
+            # Return empty set on VOSpace copy error.
+            return {}
+        images.append(image)
+
+    wcs_dict = {}
+    load_images(images, ra, dec, wcs_dict, orbit)
+    obs = measure_image(p_name, images, wcs_dict, discovery=discovery)
     return obs
 
 
 def _main(**kwargs):
-    start_ds9('validate')
     if 'provisional_name' not in kwargs:
-    #    kwargs['provisional_name'] = util.get_provisional_name(**kwargs)
-         kwargs['provisional_name'] = kwargs['index']
+        kwargs['provisional_name'] = kwargs['p_name']
     ast_filename = f"{kwargs['provisional_name']}.mpc"
     logging.info(f"Attempting measures of {kwargs['provisional_name']}, will write to {ast_filename}")
     obs = {}
@@ -267,40 +287,41 @@ def get_valid_obs_count(observations):
 
 def main_args(args):
     kwargs = vars(args)
-    kwargs['p_name'] = kwargs['index']
-    # kwargs['p_name'] = util.get_provisional_name(**kwargs)
+    # kwargs['p_name'] = "ML{:03d}{:02d}".format(kwargs['ccd'],kwargs['index'])
+    kwargs['p_name'] = util.get_provisional_name(**kwargs)
+    print(kwargs['p_name'])
     _main(**kwargs)
 
 
 def main_list(args):
-    t = Table.read(args.detections, format='ascii')
+    t = Table.read(args.detections)
     logging.debug(f"read table of len {len(t)} with columns {t.colnames}")
 
-    targets = numpy.unique(t['index'])
+    targets = ["{:05d}{:03d}{:03d}".format(r['pointing'],
+                                           r['ccd'],
+                                           r['index']) for r in t]
+    t['targets'] = targets
+
     if len(targets) == 1:
         t['provisional_name'] = os.path.splitext(os.path.basename(args.detections))[0]
         logging.info(f"Using provisional name {t['provisional_name'][0]}")
 
-    for target in targets:
-        rows = t[t['index'] == target]
+    for row in t:
 
-        if 'provisional_name' not in rows.colnames:
-            logging.debug(f"Computing provisional name for {rows[0]}")
-            kwarg = dict([(name, rows[0][name]) for name in rows[0].colnames])
+        if 'provisional_name' not in row.colnames:
+            logging.debug(f"Computing provisional name for {row}")
+            kwarg = dict([(name, row[name]) for name in row.colnames])
             p_name = util.get_provisional_name(**kwarg)
             logging.debug(f"Got: {p_name}")
         else:
-            p_name = rows[0]['provisional_name']
+            p_name = row['provisional_name']
 
-        logging.info(f"{p_name} available on {len(rows)} nights")
-
-        for row in rows:
-            logging.debug(f"{row}")
-            kwarg = dict([(name, row[name]) for name in row.colnames])
-            kwarg['p_name'] = p_name
-            kwarg['skip'] = args.skip
-            logging.debug(kwarg)
-            _main(**kwarg)
+        logging.debug(f"{row}")
+        kwarg = dict([(name, row[name]) for name in row.colnames])
+        kwarg['p_name'] = p_name
+        kwarg['skip'] = args.skip
+        logging.debug(kwarg)
+        _main(**kwarg)
 
 
 def run():
@@ -329,6 +350,8 @@ def run():
 
     args = main_parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
+    logging.basicConfig(level=getattr(logging, args.log_level))
+    start_ds9('validate')
     args.func(args)
 
 
