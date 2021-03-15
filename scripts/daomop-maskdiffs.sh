@@ -5,7 +5,7 @@ function mcp {
     loop_counter=0
     while true
     do
-	vcp -v $1 $2 && break || (sleep 10 && loop_counter=$((loop_counter+1)) && [ "$loop_counter" -lt "1000" ] || return )
+	vcp -v $1 $2 && break || (sleep 10 && loop_counter=$((loop_counter+1)) && [ "$loop_counter" -lt "5" ] || return )
     done
 }
 
@@ -13,16 +13,17 @@ function getcorr {
     listfile1=$1
     wc -l ${listfile1}
     ccd1=$(echo $2 | awk ' { printf("%d", $1) } ' )
-    for lsstrun in "LSST2020" "LSST2020_June" "LSST2020_Aug"
+    for expnum in $(cat ${listfile1})
     do
-        base1="vos:NewHorizons/${lsstrun}/processCcdOutputs/"
-	for expnum in $(cat ${listfile1})
+	for lsstrun in "LSST2020" "LSST2020_June" "LSST2020_Aug"
 	do
+            base1="vos:NewHorizons/${lsstrun}/processCcdOutputs/"
 	    expnum=$(echo ${expnum} | awk ' { printf("%d", $1) } ')
 	    tarfile="HSC_${expnum}_${ccd1}_output.tgz"
-            mcp ${base1}/${tarfile} ./ || break
+            mcp ${base1}/${tarfile} ./ || continue
+	    tar xvf ${tarfile} &&  rm --verbose ${tarfile} || return
+	    break
 	done
-	tar xvf ${tarfile} && rm ${tarfile} || return
     done
 }
 
@@ -48,14 +49,14 @@ echo "Getting DIFFS and making MASKED version"
 mcp "${vos_uri}/psf_fwhm.txt" ./ || exit
 
 # pull the DIFF tar ball if _masked didn't exist for this CCD from DIFFS/pointing directory on VOSpace.
-mcp "${vos_uri}/DIFFS/${pointing}/DIFF-${ccd}.*" ./  && tar xvf DIFF-${ccd}.* | awk -F- '{print($4)}' > ${expnum_list}  || exit
+mcp "${vos_uri}/DIFFS/${pointing}/DIFF-${ccd}.*" ./  && tar xvf DIFF-${ccd}.* | awk -F- '{print($4)}' > ${expnum_list} && rm DIFF-${ccd}.*  || exit
 
 # pull the CORR tar ball for this CCD from DIFFS/pointing directory on VOSpace.
-# mcp "${vos_uri}/CORR/${pointing}/CORR-${ccd}.*" ./ && tar xvf CORR-${ccd}.* && rm CORR-${ccd}.*  ||
+# mcp "${vos_uri}/CORR/${pointing}/CORR-${ccd}.*" ./ && tar xvf CORR-${ccd}.* && rm CORR-${ccd}.* 
 getcorr ${expnum_list} ${ccd} || exit
 
 # pull the MASK tar ball for this CCD from DIFFS/pointing directory on VOSpace to only redo missing ones.
-mcp "${vos_uri}/DIFFS/${pointing}/MASKED-${ccd}.*" ./ && tar xvf MASKED-${ccd}.* && rm MASKED-${ccd}.*  || exit
+mcp "${vos_uri}/DIFFS/${pointing}/MASKED-${ccd}.*" ./ && tar xvf MASKED-${ccd}.* && rm MASKED-${ccd}.* 
 
 # Build the MASKED versions of the files.
 for fullpath in ${basedir}/rerun/${diff_rerun}/${exptype}/${pointing}/${filter}/DIFFEXP-*-${ccd}.fits

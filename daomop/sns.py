@@ -480,11 +480,11 @@ def main():
         if not args.group:
             # stride the image list
             sub_images = images[index::args.n_sub_stacks]
-            # reference_idx = int(len(images) // 2)
-            # reference_image = sub_images[reference_idx]
-            # reference_hdu = fits.open(images[reference_idx])
-            # reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
-            # reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
+            reference_idx = int(len(images) // 2)
+            reference_image = images[reference_idx]
+            reference_hdu = fits.open(images[reference_idx])
+            reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
+            reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         else:
             # group images by time
             start_idx = len(images)//args.n_sub_stacks*index
@@ -551,8 +551,9 @@ def main():
                 astheads[image]['CRPIX1'] -= x1
                 astheads[image]['CRPIX2'] -= y1
 
-        reference_idx = int(len(hdus) // 2)
-        reference_hdu = hdus[reference_idx]
+        if args.group:
+            reference_idx = int(len(hdus) // 2)
+            reference_hdu = hdus[reference_idx]
 
         hdus2 = []
         for hdu in hdus:
@@ -594,9 +595,9 @@ def main():
                 expnum = f'{int(args.pointing)}{int_rate:02d}{int_angle:04d}{index}'
                 output_filename = f'{expnum}p{args.ccd:02d}.fits'
             else:
+                expnum = reference_hdu[0].header.get('FRAMEID', 'HSCA0000000').replace('HSCA', '')
                 output_filename = f'STACK-{reference_filename}-{index:02d}-' \
                                   f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
-                expnum = reference_hdu[0].header.get('FRAMEID', 'HSCA0000000').replace('HSCA', '')
             output_filename = os.path.join(output_dir, output_filename)
             if os.access(output_filename, os.R_OK):
                 logging.warning(f'{output_filename} exists, skipping')
