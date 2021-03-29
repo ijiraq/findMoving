@@ -16,18 +16,21 @@ function gt { $(echo  ${1} ${2} | awk ' { if ( $1 > $2 ) { print("true") } else 
 basedir=$1 && shift
 vos_uri=$1 && shift
 pointing=$1 &&shift
-chip=$1 && shift
 
 filter="HSC-R2"
 exptype="MASKED"
 stack_rerun="sns_weighted"
 diff_rerun="diff"
+
+chip=$1 && shift
 ccd=$(echo ${chip} | awk ' { printf("%03d",$1) } ' )
 
 angle=$1 && shift
 rate=$1 && shift
 angle_step=1
 rate_step=1
+
+nstacks=$1 && shift
 
 # pull the DIFF tar ball for this CCD from DIFFS/pointing directory on VOSpace.
 mcp "${vos_uri}/DIFFS/${pointing}/MASKED-${ccd}.tar" ./  && tar xvf MASKED-${ccd}.tar 
@@ -45,6 +48,7 @@ daomop-sns ${basedir} \
 	   --angle-max ${angle} \
 	   --angle-step ${angle_step} \
 	   --pointing ${pointing} \
+	   --n-sub-stacks ${nstacks} \
 	   --ccd ${chip} \
 	   --mask \
 	   --section-size 600 \
