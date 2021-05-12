@@ -2,21 +2,19 @@ import argparse
 import logging
 import os
 import sys
-
 import numpy as np
-
-numpy = np
-
 from astropy import time, units
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
-
 from . import util
 from .util import get_image_list
 from .version import __version__
+
+numpy = np
+
 
 STACKING_MODES = {'MEDIAN': np.nanmedian,
                   'MEAN': np.nanmean,
@@ -45,12 +43,17 @@ LSST_MASK_BITS = {'BAD': 0,
 HSC_HDU_MAP = {'image': 1, 'mask': 2, 'variance': 3, 'weight': 3}
 
 
-STACK_MASK = (2**LSST_MASK_BITS['EDGE'], 2**LSST_MASK_BITS['NO_DATA'], 2**LSST_MASK_BITS['BRIGHT_OBJECT'],
-              2**LSST_MASK_BITS['SAT'], 2**LSST_MASK_BITS['INTRP'], 2**LSST_MASK_BITS['REJECTED'])
+STACK_MASK = (2**LSST_MASK_BITS['EDGE'],
+              2**LSST_MASK_BITS['NO_DATA'],
+              2**LSST_MASK_BITS['BRIGHT_OBJECT'],
+              2**LSST_MASK_BITS['SAT'],
+              2**LSST_MASK_BITS['INTRP'],
+              2**LSST_MASK_BITS['REJECTED'])
 
 
 def weighted_quantile(values, quantile, sample_weight):
-    """ Very close to numpy.percentile, but supports weights.  Always overwrite=True, works on arrays with nans.
+    """ Very close to numpy.percentile, but supports weights.
+    Always overwrite=True, works on arrays with nans.
 
     # THIS IS NOT ACTUALLY THE PERCENTILE< BUT CLOSE ENOUGH...<
 
@@ -164,6 +167,8 @@ def down_sample_2d(inp, fr):
     bin up a image by factor fr
     :param inp: input array
     :param fr: downscaling factor
+
+    :return numpy.ndarray
     """
     new_shape = inp.shape[0]//fr, inp.shape[1]//fr
     fr = inp.shape[0]//new_shape[0], inp.shape[1]//new_shape[1]
@@ -251,6 +256,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     :rtype: fits.HDUList
     :return: combined data after shifting at dx/dy and combined using stacking_mode.
     """
+    logging.debug(f"Ignoring {kwargs}")
     if stacking_mode is None:
         stacking_mode = 'SUM'
     logging.info(f'Combining images using {stacking_mode}')
