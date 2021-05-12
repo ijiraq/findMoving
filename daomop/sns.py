@@ -2,7 +2,7 @@ import argparse
 import logging
 import os
 import sys
-
+import gc
 import numpy as np
 
 numpy = np
@@ -303,6 +303,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             # outs contains the shifted versions of the arrays after down sampling.
             outs = []
             variances = []
+            gc.collect()
             for hdu in hdus:
                 # compute the x and y shift for image at this time and scale the size of shift for the
                 # scaling factor of this shift.

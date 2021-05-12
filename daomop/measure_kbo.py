@@ -106,7 +106,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target='validate'):
             ds9.set('frame next')
             continue
         if key == 'p':
-            ds9.set('frame previous')
+            ds9.set('frame prev')
             continue
 
         if key not in allowed_keys:
@@ -294,7 +294,7 @@ def main_args(args):
 
 
 def main_list(args):
-    t = Table.read(args.detections)
+    t = Table.read(args.detections,  format='ascii')
     logging.debug(f"read table of len {len(t)} with columns {t.colnames}")
 
     targets = ["{:05d}{:03d}{:03d}".format(r['pointing'],
