@@ -3,6 +3,7 @@ Create an Observation using ds9 displaying an image of a KBO source.
 """
 import argparse
 import logging
+import math
 import os
 
 import pyds9
@@ -26,15 +27,15 @@ field_ids = {3068: 'P68', 3071: 'P71', 3072: 'P72'}
 
 def start_ds9(name):
     c = 0
-    while c < 10:
+    while True:
         try:
             ds9 = pyds9.DS9(target=name)
             break
         except Exception as ex:
-            print(f"{ex}")
-            name='validate'
+            if c > 10:
+                raise ex
             c +=1
-            print("Trying again in 10 seconds")
+            logging.debug("Trying again to connect to ds9 after 5s wait")
             time.sleep(5)
 
     levels = ['INIT', 'PREF']
@@ -50,31 +51,37 @@ def get_ds9(name):
     return pyds9.DS9(target=name, start=False)
 
 
-def load_images(images, ra, dec, wcs_dict, orbit=None, target='validate'):
+def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
+                target='validate'):
     ds9 = get_ds9(target)
     ds9.set('frame delete all')
     ds9.set('zscale')
+    basedate = None
     for image in images:
         ds9.set('frame new')
         ds9.set(f"file {image}")
         with fits.open(image) as hdulist:
             header = hdulist[1].header
             obsdate = Time(hdulist[0].header['DATE-AVG'], scale='tai').utc
+            if basedate is None:
+                basedate = obsdate
             wcs_dict[image] = WCS(header)
             if orbit is not None:
                 orbit.predict(obsdate)
-                ra = orbit.coordinate.ra.degree
-                dec = orbit.coordinate.dec.degree
+                ra1 = orbit.coordinate.ra.degree
+                dec1 = orbit.coordinate.dec.degree
                 uncertainty_ellipse = (orbit.dra.to('arcsec').value,
                                        orbit.ddec.to('arcsec').value,
                                        orbit.pa.to('degree').value + 90)
             else:
+                ra1 = ra - dra*(obsdate-basedate).to('hour').value/3600.
+                dec1 = dec - ddec*(obsdate-basedate).to('hour').value/3600.0
                 uncertainty_ellipse = 3, 3, 0
-            ds9.set('regions', f'icrs; ellipse({ra},{dec},'
+            ds9.set('regions', f'icrs; ellipse({ra1},{dec1},'
                                f'{uncertainty_ellipse[0]}",'
                                f'{uncertainty_ellipse[1]}",'
                                f'{uncertainty_ellipse[2]})')
-            ds9.set(f'pan to {ra} {dec} wcs icrs')
+            ds9.set(f'pan to {ra1} {dec1} wcs icrs')
     ds9.set('frame match wcs')
     ds9.set('frame first')
 
@@ -227,7 +234,10 @@ def main(orbit=None, **kwargs):
         images.append(image)
 
     wcs_dict = {}
-    load_images(images, ra, dec, wcs_dict, orbit)
+    load_images(images, ra, dec, wcs_dict, orbit,
+                dra=rate*math.cos(math.radians(angle)),
+                ddec=rate*math.sin(math.radians(angle)))
+
     obs = measure_image(p_name, images, wcs_dict, discovery=discovery)
     return obs
 
@@ -294,7 +304,7 @@ def main_args(args):
 
 
 def main_list(args):
-    t = Table.read(args.detections)
+    t = Table.read(args.detections, format='ascii')
     logging.debug(f"read table of len {len(t)} with columns {t.colnames}")
 
     targets = ["{:05d}{:03d}{:03d}".format(r['pointing'],
@@ -302,7 +312,7 @@ def main_list(args):
                                            r['index']) for r in t]
     t['targets'] = targets
 
-    if len(targets) == 1:
+    if args.provisional_name:
         t['provisional_name'] = os.path.splitext(os.path.basename(args.detections))[0]
         logging.info(f"Using provisional name {t['provisional_name'][0]}")
 
@@ -347,9 +357,9 @@ def run():
     parser_args.set_defaults(func=main_args)
     main_parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
     main_parser.add_argument('--skip', action="store_true")
-
+    main_parser.add_argument('--provisional_name', help='Name of source in target file',
+                             default=None, type=str)
     args = main_parser.parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level))
     logging.basicConfig(level=getattr(logging, args.log_level))
     start_ds9('validate')
     args.func(args)
