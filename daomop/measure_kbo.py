@@ -113,7 +113,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target='validate'):
             ds9.set('frame next')
             continue
         if key == 'p':
-            ds9.set('frame previous')
+            ds9.set('frame prev')
             continue
 
         if key not in allowed_keys:
