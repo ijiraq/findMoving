@@ -6,33 +6,36 @@ c-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
 
       implicit none
 
-      integer*4 obs_code, ierr, niter, nobjects, object_number
-      integer*4 output_lun, max_objects, max_iters
-      integer*4 field_number, i, j, version, k
+      integer(kind=4) obs_code, ierr, niter, nobjects, object_number
+      integer(kind=4) output_lun, max_objects, max_iters
+      integer(kind=4) field_number, i, j, version, k
 
-      real*8 Pi, TwoPi, drad, mu, theta, phi
-      real*8 gb, alpha, mag_limit, H_limit, MA
+      real(kind=8) Pi, TwoPi, drad, mu, theta, phi
+      real(kind=8) gb, alpha, mag_limit, H_limit, MA
 
 C     if in_sample=1 then we include this object, otherwise skip
-      integer*4 in_sample(2)
+      integer(kind=4) in_sample(2)
 
       parameter (Pi = 3.141592653589793238d0, TwoPi = 2.0d0*Pi,
      $     drad = Pi/180.0d0, mu = TwoPi**2)
-      parameter (gb = 0.15, mag_limit=28, H_limit=14, version=2)
+      parameter (gb = 0.15, mag_limit=28, H_limit=14, version=3)
       
-      real*8 obs_jday, fake_jday
-      real*8 a, e, inc, node, peri, M, H, pos(6), obs_pos(3)
-      real*8 epoch_M
-      real*8 tmp, ros, fake_obs_pos(3), fake_ros
-      real*8 ra, dec, delta, radius, mag, ddec, dra
-      real*8 fake_ra, fake_dec, fake_delta, fake_mag, fake_M
-      real*8 fake_ra2, fake_dec2, fake_delta2, fake_mag2, fake_M2
-      real*8 fake_obs_pos2(3), fake_ros2
-      real*8 obs_ra, obs_dec, obs_radius, cos_obs_dec
-      real*8 field_centre(4,2)
-      real*8 r
+      real(kind=8) obs_jday, fake_jday
+      real(kind=8) a, e, inc, node, peri, M, H, pos(6), obs_pos(3)
+      real(kind=8) vel(3)
+      real(kind=8) epoch_M
+      real(kind=8) ros, fake_obs_pos(3), fake_ros
+      real(kind=8) ra, dec, delta, radius, mag, ddec, dra
+      real(kind=8) fake_ra, fake_dec, fake_delta, fake_mag, fake_M
+      real(kind=8) fake_ra2, fake_dec2, fake_delta2, fake_mag2, fake_M2
+      real(kind=8) fake_obs_pos2(3), fake_ros2
+      real(kind=8) obs_ra, obs_dec, obs_radius, cos_obs_dec
+      real(kind=8) field_centre(4,2)
+      real(kind=8) r
       character in_str*120
       character output_filename*120
+      character*80 message
+
       max_iters = 1E8
       obs_code = 500
 
@@ -43,12 +46,15 @@ C     NHF1_20200624T00:00:00 RA=190741.37 DEC=-201619.37
 C     NHF2_20200624T00:00:00 RA=191315.00 DEC=-203737.18
 C     2020-06-24T00:00:00
 C     To avoid bright star we moved to these centers
-C     TGT_NHF120200824=OBJECT="NHF1_20200824" RA=190420.57 DEC=-201037.58 EQUINOX=2000.00
-C     TGT_NHF220200824=OBJECT="NHF2_20200824" RA=191028.77 DEC=-201101.53 EQUINOX=2000.00
-C     But the coded centre is left fixed as that's what is used in original orbit 
+C     TGT_NHF120200824=OBJECT="NHF1_20200824"
+C                             RA=190420.57 DEC=-201037.58 EQUINOX=2000.00
+C     TGT_NHF220200824=OBJECT="NHF2_20200824"
+C                             RA=191028.77 DEC=-201101.53 EQUINOX=2000.00
+C     Coded centre is left fixed as that's what is used in original orbit
 C     selection. F1 moved by 0.79 degrees, F2 moved by 0.78 degrees.  
 C     Subaru FOV is radius of 0.75 degrees and we select sources within 1.2 
-C     Thus, the edge of the field is not well populated. 0.79+0.75 ~ 1.60 leaving 0.4 degree
+C     Thus, the edge of the field is not well populated.
+C     0.79+0.75 ~ 1.60 leaving 0.4 degree
 C     empty of sources.
 
 C     Original field centres
@@ -70,7 +76,8 @@ C     Modified field centres for brigh star removal.
       CALL parse_args(field_number, fake_jday, max_objects)
 
       if ( field_number .ne. 1 .and. field_number .ne. 2) then
-         CALL usage("Invalid field number, must be 1 or 2", -2)
+        message = 'Invalid field number, must be 1 or 2'
+        CALL usage(message, -2)
       end if
       cos_obs_dec = cos(field_centre(1,2)*drad)
       obs_radius = 1.2*drad
@@ -98,15 +105,15 @@ C     Modified field centres for brigh star removal.
 
 C     Get observatory location for primary/master location
       call ObsPos (obs_code, obs_jday, obs_pos, 
-     $     tmp, ros, ierr)
+     $     vel, ros, ierr)
 
 C     Get the observer location at this fake date.
       call ObsPos (obs_code, fake_jday, fake_obs_pos,
-     $     tmp, fake_ros, ierr)
+     $     vel, fake_ros, ierr)
 
 C     Get the observer location at fake date + 1 day (for rates)
       call ObsPos (obs_code, fake_jday+1, fake_obs_pos2,
-     $     tmp, fake_ros2, ierr)
+     $     vel, fake_ros2, ierr)
 
 
 
@@ -213,18 +220,17 @@ C     Regardless of which sample this was in, increment the counter
       end program xx
 
 
-      real function MA(M, epoch_M, a, jday)
+      real*8 function MA(M, epoch_M, a, jday)
+C     Move the Mean Annomally from jday to epoch_M
 
       real*8 M
       real*8 jday
-      real*8 MA
       real*8 nu, TwoPi, epoch_M, a
       parameter (TwoPi=3.141592653589793238d0*2d0, nu=TwoPi/365.25d0)
 
-C     Source is on the primary image and detectable by the primary.
       MA = M + (jday-epoch_M)*((nu/a**1.5))
       MA = MA - int(MA/TwoPi)*TwoPi
-      return 
+      return
       end function MA
       
 

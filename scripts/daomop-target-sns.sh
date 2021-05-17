@@ -43,7 +43,7 @@ dbimages="vos:NewHorizons/dbimages/${pointing}/${chip}"
 
 # Get from VOSpace the diff images to be stacked for this sources
 \rm -r ${basedir}/rerun/diff/deepDiff
-tardir="vos:NewHorizons/S20A-OT04/DIFFS/${pointing}"
+tardir="${vosbase}/DIFFS/${pointing}"
 for tarfile in "DIFF-${pointing}-${chip}_masked.tar" "DIFF-${chip}.tar"
 do
     vcp  ${tardir}/${tarfile} ./ && break
