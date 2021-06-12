@@ -1,20 +1,16 @@
 import argparse
-import vos
-import linecache
 import logging
 import os
-import sys
 import tempfile
-import tracemalloc
-
 import numpy as np
+import vos
 from astropy import time, units
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
-
 from ccdproc import CCDData, wcs_project, Combiner
+
 from . import util
 from .util import get_image_list
 from .version import __version__
@@ -22,7 +18,6 @@ from .version import __version__
 numpy = np
 
 previous_snapshot = None
-
 
 STACKING_MODES = {'MEDIAN': np.nanmedian,
                   'MEAN': np.nanmean,
@@ -59,37 +54,8 @@ STACK_MASK = (2**LSST_MASK_BITS['EDGE'],
               2**LSST_MASK_BITS['REJECTED'])
 
 
-def display_top(key_type='lineno', limit=3, detail=False):
-    snapshot = tracemalloc.take_snapshot()
-    global previous_snapshot
-    if previous_snapshot is not None:
-        top_stats = snapshot.compare_to(previous_snapshot, key_type)
-    else:
-        top_stats = snapshot.statistics(key_type)
 
-    if detail:
-        print("Top %s lines" % limit)
-        for index, stat in enumerate(top_stats[:limit], 1):
-            frame = stat.traceback[0]
-            # replace "/path/to/module/file.py" with "module/file.py"
-            filename = os.sep.join(frame.filename.split(os.sep)[-2:])
-            print("#%s: %s:%s: %.1f KiB"
-                  % (index, filename, frame.lineno, stat.size / 1024))
-            line = linecache.getline(frame.filename, frame.lineno).strip()
-            if line:
-                print('    %s' % line)
-
-        other = top_stats[limit:]
-        if other:
-            size = sum(stat.size for stat in other)
-            print("%s other: %.1f KiB" % (len(other), size / 1024))
-    total = sum(stat.size for stat in top_stats)
-    msg = "TOTAL "
-    print(f"{msg} allocated size: {total/1024**2:3.2f} MiB")
-    previous_snapshot = snapshot
-
-
-def weighted_quantile(values, quantile, sample_weight):
+def _weighted_quantile(values, quantile, sample_weight):
     """ Very close to numpy.percentile, but supports weights.
     Always overwrite=True, works on arrays with nans.
 
@@ -106,7 +72,6 @@ def weighted_quantile(values, quantile, sample_weight):
     :return: numpy.array with computed quantiles.
     """
     logging.info(f'computing weighted quantile: {quantile}')
-    display_top()
     sorter = np.argsort(values, axis=0)
     values = numpy.take_along_axis(values, sorter, axis=0)
     sample_weight = numpy.take_along_axis(sample_weight, sorter, axis=0)
@@ -115,11 +80,10 @@ def weighted_quantile(values, quantile, sample_weight):
     weighted_quantiles = np.nancumsum(sample_weight, axis=0) - 0.5 * sample_weight
     weighted_quantiles /= np.nansum(sample_weight, axis=0)
     ind = np.argmin(weighted_quantiles <= quantile, axis=0)
-    display_top()
     return np.take_along_axis(values, np.expand_dims(ind, axis=0), axis=0)[0]
 
 
-STACKING_MODES['WEIGHTED_MEDIAN'] = weighted_quantile
+STACKING_MODES['WEIGHTED_MEDIAN'] = None
 
 
 def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
@@ -215,7 +179,6 @@ def down_sample_2d(inp, fr):
     new_shape = inp.shape[0]//fr, inp.shape[1]//fr
     fr = inp.shape[0]//new_shape[0], inp.shape[1]//new_shape[1]
     result = inp.reshape((new_shape[0], fr[0], new_shape[1], fr[1])).mean(axis=(-1, 1))
-    display_top()
     return result
 
 
@@ -242,16 +205,16 @@ def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
                   f'dx {dra} and dy {ddec}')
     sky_coord = get_centre_coord(hdu)
     # Add offset needed to align the corner of the image with the reference image.
-    dra -= (ref_skycoord[0] - sky_coord[0])*units.degree
-    ddec -= (ref_skycoord[1] - sky_coord[1])*units.degree
+    dra += (ref_skycoord[0] - sky_coord[0])*units.degree
+    ddec += (ref_skycoord[1] - sky_coord[1])*units.degree
     try:
         _x, _y = w.wcs_world2pix(sky_coord[0], sky_coord[1], 0)
         c1 = _x, _y
         _x, _y = w.wcs_world2pix(sky_coord[0]+dra.to('degree').value,
                                  sky_coord[1]+ddec.to('degree').value, 0)
         c2 = _x, _y
-        dx = int(rf*(c2[0]-c1[0]))
-        dy = int(rf*(c2[1]-c1[1]))
+        dx = (rf*(c2[0]-c1[0]))
+        dy = (rf*(c2[1]-c1[1]))
     except Exception as ex:
         logging.warning(ex)
         return None, None
@@ -278,19 +241,38 @@ def get_centre_coord(hdulist):
     return sky_coord
 
 
-def remap_array(image_data, dest_bounds, source_bounds):
+def remap_array(image_data, dx, dy):
     """
+    Offset indices of image_data by dx and dy, ie 'shift' the image array.
 
     :param image_data: image data that will be mapped to a new array boundary.
     :type image_data: np.array
-    :param dest_bounds: the [i1:i2,j1:j2] bounds where data will be mapped into.
-    :type dest_bounds: list(2,2)
-    :param source_bounds: the [i1:i2,j1:j2] bounds where data will be mapped from.
-    :type source_bounds: list(2,2)
+    :type dx: float
+    :type dy: float
     :return: None
     """
+    # dest_bounds are range of the index where the data should go into
+    # source_bounds are the range of the index where the data come from.
+    # this creates a shift in the data, using index bounds.
+    offsets = {1: int(dx), 0: int(dy)}
+    dest_bounds = [[0, image_data.shape[0]], [0, image_data.shape[1]]]
+    excluded_bounds = [[0, image_data.shape[0]], [0, image_data.shape[1]]]
+    source_bounds = [[0, image_data.shape[0]], [0, image_data.shape[1]]]
+    for axis in offsets:
+        if offsets[axis] < 0:
+            dest_bounds[axis] = 0, image_data.shape[axis] + offsets[axis]
+            excluded_bounds[axis] = image_data.shape[axis] + offsets[axis], image_data.shape[axis]
+            source_bounds[axis] = -offsets[axis], image_data.shape[axis]
+        elif offsets[axis] >= 0:
+            dest_bounds[axis] = offsets[axis], image_data.shape[axis]
+            excluded_bounds[axis] = 0, offsets[axis]
+            source_bounds[axis] = 0, image_data.shape[axis] - offsets[axis]
+    # compute the excluded area from this image_data.
+    logging.debug(f'Placing data from section {source_bounds} into {dest_bounds} and excluding {excluded_bounds}')
+
     image_data[dest_bounds[0][0]:dest_bounds[0][1], dest_bounds[1][0]:dest_bounds[1][1]] = \
         image_data[source_bounds[0][0]:source_bounds[0][1], source_bounds[1][0]:source_bounds[1][1]]
+    image_data[excluded_bounds[0][0]:excluded_bounds[0][1], excluded_bounds[1][0]:excluded_bounds[1][1]] = np.NaN
 
 
 def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024, **kwargs):
@@ -300,7 +282,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     :rtype: fits.HDUList
     :return: combined data after shifting at dx/dy and combined using stacking_mode.
     """
-    logging.debug(f"Ignoring {kwargs}")
+    logging.debug(f"Ignoring {len(kwargs)} extra arguments passed to this function.")
     if stacking_mode is None:
         stacking_mode = 'SUM'
     logging.info(f'Combining images using {stacking_mode}')
@@ -318,115 +300,106 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
     y_section_grid = np.arange(0, reference_hdu[1].data.shape[0], section_size)
     logging.debug(f'Chunk grid: y {y_section_grid}')
     x_section_grid = np.arange(0, reference_hdu[1].data.shape[1], section_size)
-    logging.debug(f'Chunk grid: y {x_section_grid}')
+    logging.debug(f'Chunk grid: x {x_section_grid}')
     image_array = np.zeros(reference_hdu[1].data.shape)
     variance_array = np.zeros(reference_hdu[1].data.shape)
     # putt a padding box around our image to account for the maximum object shear
     # between the first and final image (which are about 4 hours apart)
-    padding = {'low': {'x': 0, 'y': 0}, 'high': {'x': 0, 'y': 0}}
-    for image in hdus:
-        with fits.open(image) as hdu_list:
-            dx, dy = compute_offset(hdu_list, rx, ry, rf, mid_mjd, ref_skycoord)
-            padding['low']['x'] = min(dx-1, padding['low']['x'])
-            padding['low']['y'] = min(dy+1, padding['low']['y'])
-            padding['high']['x'] = max(dx-1, padding['high']['x'])
-            padding['high']['y'] = max(dy+1, padding['high']['y'])
 
     for yo in y_section_grid:
         # yo,yp are the bounds were data will be inserted into image_array
         # but we need y1,y2 range of data to come from input to allow for 
         # shifting of pixel boundaries.
         yo = int(yo)
-        y1 = int(max(0, yo+padding['low']['y']))
         yp = int(min(image_array.shape[0], yo+section_size))
-        y2 = int(min(image_array.shape[0], yp+padding['high']['y']))
-        yl = yo - y1
-        yu = yl + yp - yo 
         for xo in x_section_grid:
             xo = int(xo)
-            x1 = int(max(0, xo+padding['low']['x']))
             xp = int(min(image_array.shape[1], xo+section_size))
-            x2 = int(min(image_array.shape[1], xp+padding['high']['x']))
-            xl = xo - x1
-            xu = xl + xp - xo
-            logging.debug(f'Taking section {y1,y2,x1,x2} shifting, '
-                          f'cutting out {yl,yu,xl,xu} '
-                          f'and  placing in {yo,yp,xo,xp} ')
-            # outs contains the shifted versions of the arrays after down sampling.
-            outs = []
-            variances = []
+            stacks = {'image': [], 'variance': []}
             for filename in hdus:
                 with fits.open(filename) as hdu_list:
-                    # compute the x and y shift for image at this time and scale the size of shift for the
-                    # scaling factor of this shift.
-                    logging.debug(f'Adding exposure taken at {mid_exposure_mjd(hdu_list[HSC_HDU_MAP["circumstance"]]).isot} '
-                                  f'reference from {mid_mjd.isot}')
-                    dx, dy = compute_offset(hdu_list, rx, ry, rf, mid_mjd, ref_skycoord)
-                    logging.debug(f'Translates into a up-scaled pixel shift of {dx},{dy}')
-                    rep = np.repeat(np.repeat(hdu_list[HSC_HDU_MAP['image']].data[y1:y2, x1:x2], rf, axis=0),
-                                    rf, axis=1)
-                    logging.debug("Data from shape {} has been sampled into shape {}".format(
-                        hdu_list[HSC_HDU_MAP['image']].data[y1:y2, x1:x2].shape, rep.shape))
-                    variance = np.repeat(np.repeat(hdu_list[HSC_HDU_MAP['variance']].data[y1:y2, x1:x2], rf, axis=0),
-                                         rf, axis=1)
-                # dest_bounds are range of the index where the data should go into
-                # source_bounds are the range of the index where the data come from.
-                # this creates a shift in the data, using index bounds.
-                offsets = {1: dx, 0: dy}
-                dest_bounds = [[0, rep.shape[0]], [0, rep.shape[1]]]
-                source_bounds = [[0, rep.shape[0]], [0, rep.shape[1]]]
-                for axis in offsets:
-                    if offsets[axis] < 0:
-                        dest_bounds[axis] = 0, rep.shape[axis] + offsets[axis]
-                        source_bounds[axis] = -offsets[axis], rep.shape[axis]
-                    elif offsets[axis] > 0:
-                        dest_bounds[axis] = offsets[axis], rep.shape[axis]
-                        source_bounds[axis] = 0, rep.shape[axis] - offsets[axis]
-                logging.debug(f'Placing data from section {source_bounds} into {dest_bounds}')
-                remap_array(rep, dest_bounds, source_bounds)
-                remap_array(variance, dest_bounds, source_bounds)
-                display_top()
-                outs.append(rep)
-                variances.append(variance)
-            variances = np.array(variances)
-            outs = np.array(outs)
-            # count up data where pixels were not 'nan'
+                    for extension in 'image', 'variance':
+                        # compute the x and y shift for image at this time and scale the size of shift for the
+                        # scaling factor of this shift.
+                        logging.debug(f'Adding exposure taken at {mid_exposure_mjd(hdu_list[HSC_HDU_MAP["circumstance"]]).isot} '
+                                      f'reference from {mid_mjd.isot}')
+                        dx, dy = compute_offset(hdu_list, rx, ry, 1, mid_mjd, ref_skycoord)
+                        # x/y boundaries of cutout from this image must be shifted to account for object motion.
+                        # We reduce the {x,y}1 and increase the {x,y}2 boundaries by rf to allow expanding 1/rf
+                        # sub-pixel shifting.
+                        logging.debug(f"Shifting by integer amount of {dx}, {dy}")
+                        logging.debug(f"Lower / upper y bounds: {yo+dy-1},{yp+dy+1}")
+                        logging.debug(f"Lower / upper x bounds: {xo+dx-1},{xp+dx+1}")
+                        y1 = int(max(0, yo+dy-1))
+                        x1 = int(max(0, xo+dx-1))
+                        y2 = int(min(hdu_list[HSC_HDU_MAP[extension]].data.shape[0], yp+dy+1))
+                        x2 = int(min(hdu_list[HSC_HDU_MAP[extension]].data.shape[1], xp+dx+1))
+                        if y2 < y1 or x2 < x1:
+                            logging.warning(f"rate shifted off Frame {filename} section {xo,yo}")
+                            continue
+                        logging.debug(f"Getting {y1}:{y2},{x1}:{x2} from {filename}")
+                        sample_offset = ((rf * (y1 - int((yo + dy - 1))), rf * (y2 - int((yo + dy - 1)))),
+                                         (rf * (x1 - int((xo + dx - 1))), rf * (x2 - int((xo + dx - 1)))))
+                        logging.debug(f"Placing into {sample_offset}")
+                        data = hdu_list[HSC_HDU_MAP[extension]].data[y1:y2, x1:x2]
+                        logging.debug(f"Got data shape: {data.shape} from {filename}")
+                        rep = np.repeat(np.repeat(data, rf, axis=0),
+                                        rf, axis=1)
+                        logging.debug(f"Now shape: {rep.shape} after {rf} scale up")
+                        # Create a holding array of the correct size for full section at rep:
+                        hold_array = np.empty((((yp-yo)+2)*rf, (xp-xo+2)*rf))
+                        hold_array.fill(np.nan)
+                        logging.debug(f"Created holding array of size: {hold_array.shape}")
+                        hold_array[sample_offset[0][0]:sample_offset[0][1], sample_offset[1][0]:sample_offset[1][1]] = rep
+                        logging.debug(f"Got {numpy.isnan(hold_array).sum()} nans and {(~numpy.isnan(hold_array)).sum()} not nan")
+                        # Using the remapped array we can make the floating point part of the dx/dy shifts
+                        # but still as integers, this time with rf bigger pixels.
+                        dy_rep = (dy - int(dy)) * rf
+                        dx_rep = (dx - int(dx)) * rf
+                        logging.debug(f"tweaking by integer amount of {dx_rep},{dy_rep}")
+                        # Now we have the oversampled array where does it go in our destination?
+                        remap_array(hold_array, dx_rep, dy_rep)
+                        logging.debug(f"remap {numpy.isnan(hold_array).sum()} nans and {(~numpy.isnan(hold_array)).sum()} not nan")
+                        hold_array = hold_array[3:-3, 3:-3]
+                        logging.debug(f"trimmed {numpy.isnan(hold_array).sum()} nans and {(~numpy.isnan(hold_array)).sum()} not nan")
+                        stacks[extension].append(hold_array)
+                        logging.debug("Data from shape {} has been sampled into shape {}".format(
+                            hdu_list[HSC_HDU_MAP['image']].data[y1:y2, x1:x2].shape, hold_array.shape))
+
+            outs = np.array(stacks['image'])
+            variances = np.array(stacks['variance'])
             num_frames = numpy.sum(~numpy.isnan(outs), axis=0)
+            logging.debug(f'num_frames: {num_frames[num_frames>0]}')
             logging.debug(f'Stacking {len(outs)} images of shape {outs[0].shape}')
             logging.info(f'Combining shifted pixels using {stacking_mode}')
-            display_top()
-            if stacking_mode == weighted_quantile:
+            if stacking_mode == STACKING_MODES['WEIGHTED_MEDIAN']:
                 logging.info(f'computing weighted quantile: {0.5001}')
                 sorter = np.argsort(outs, axis=0)
                 outs = numpy.take_along_axis(outs, sorter, axis=0)
                 variances = 1./variances
                 variances = numpy.take_along_axis(variances, sorter, axis=0)
                 del sorter
-                display_top()
                 # check for inf weights, and remove
                 variances[numpy.isinf(variances)] = 0.0
                 weighted_quantiles = np.nancumsum(variances, axis=0) - 0.5 * variances
                 weighted_quantiles /= np.nansum(variances, axis=0)
-                display_top()
                 ind = np.argmin(weighted_quantiles <= 0.5001, axis=0)
-                display_top()
                 del weighted_quantiles
                 stacked_data = np.take_along_axis(outs, np.expand_dims(ind, axis=0), axis=0)[0]
-                display_top()
                 del outs
-                display_top()
-                # stacked_data = stacking_mode(outs, 0.50001, 1./variances)
             else:
-                stacked_data = stacking_mode(outs, overwrite_input=True, axis=0)
+                stacked_data = stacking_mode(outs, axis=0)
+                del outs
+            print(numpy.isnan(stacked_data).sum())
             logging.info("combined finished.")
-            display_top()
             logging.debug(f'Setting variance to mean variance / N frames')
             stacked_variance = STACKING_MODES['MEAN'](variances, axis=0)/num_frames
+            print(numpy.isnan(stacked_variance).sum())
             del variances
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
-            image_array[yo:yp, xo:xp] = down_sample_2d(stacked_data, rf)[yl:yu, xl:xu]
-            variance_array[yo:yp, xo:xp] = down_sample_2d(stacked_variance, rf)[yl:yu, xl:xu]
+            image_array[yo:yp, xo:xp] = down_sample_2d(stacked_data, rf)
+            variance_array[yo:yp, xo:xp] = down_sample_2d(stacked_variance, rf)
     logging.debug(f'Down sampled image has shape {image_array.shape}')
     hdu_list = fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
                              fits.ImageHDU(data=image_array, header=reference_hdu[HSC_HDU_MAP['image']].header),
@@ -520,7 +493,7 @@ def main():
     for image in images:
         filename = os.path.basename(image)
         ast_filename = os.path.join(ast_path, 
-                                    filename.replace('DIFFEXP', 'CORR').replace('.fits','.mega.head'))
+                                    filename.replace('DIFFEXP', 'CORR').replace('.fits', '.mega.head'))
         if os.access(ast_filename, os.R_OK):
             astheads[filename] = fits.Header.fromtextfile(ast_filename)
         else:
@@ -555,6 +528,7 @@ def main():
         images = images[::stride]
 
     # do the stacking in groups of images as set from the CL.
+    reference_hdu = None
     for index in range(args.n_sub_stacks):
         if not args.group:
             # stride the image list
@@ -571,11 +545,6 @@ def main():
             end_idx = len(images)//args.n_sub_stacks*(index+1)
             end_idx = int(min(len(images), end_idx))
             sub_images = images[start_idx:end_idx]
-            # reference_idx = int(len(sub_images) // 2)
-            # reference_image = os.path.basename(sub_images[reference_idx])
-            # reference_hdu = fits.open(sub_images[reference_idx])
-            # reference_hdu[0].header['IMAGE'] = reference_image
-            # reference_filename = os.path.splitext(os.path.basename(sub_images[reference_idx]))[0][8:]
 
         hdus = {}
         for image in sub_images:
@@ -583,9 +552,9 @@ def main():
                 hdulist[0].header['IMAGE'] = os.path.basename(image)
             hdus[image] = os.path.basename(image)
 
-        # set the reference image
-        # logging.debug(f'Will use {reference_filename} as base name for storage.')
-        # logging.debug(f'Determined the reference_hdu image to be {mid_exposure_mjd(reference_hdu[0]).isot}')
+        if args.group:
+            reference_idx = int(len(sub_images) // 2)
+            reference_hdu = fits.open(sub_images[reference_idx])
 
         if not args.swarp and args.rectify:
             # Need to project all images to same WCS before passing to stack.
@@ -613,7 +582,8 @@ def main():
                     w = WCS(astheads[image])
                     try:
                         x, y = w.all_world2pix(args.centre[0], args.centre[1], 0)
-                    except:
+                    except Exception as ex:
+                        logging.error(str(ex))
                         hdul = None
                         continue
                     logging.info(f'{image} {centre.to_string(style="hmsdms", sep=":")} -> {x},{y}')
@@ -643,10 +613,6 @@ def main():
 
                     hdul.close()
             hdus = chdus
-
-        if args.group:
-            reference_idx = int(len(sub_images) // 2)
-            reference_hdu = fits.open(sub_images[reference_idx])
 
         hdus2 = {}
         # Remove from the list HDULists where there is no data left (after cutout)
@@ -722,7 +688,7 @@ def main():
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             output[0].header['CCDNUM'] = (args.ccd, 'CCD NUMBER or DETSER')
             output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
-            output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0]).mjd, "MJD MID Exposure")
+            output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0]).mjd, " MID Exposure")
             output[0].header['ASTLEVEL'] = 1
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
@@ -730,9 +696,8 @@ def main():
 
     return 0
 
-tracemalloc.start()
 
 if __name__ == "__main__":
+    import sys
     status = main()
-    display_top()
     sys.exit(status)
