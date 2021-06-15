@@ -7,6 +7,19 @@ with open("daomop/version.py") as fp:
     exec(fp.read(), version)
 print(version['__version__'])
 
+install_requires=[
+'numpy~=1.20.1',
+'astropy~=4.2',
+'pyraf~=2.1.15',
+'vos~=3.3',
+'matplotlib~=3.3.4',
+'scipy~=1.6.1',
+'ephem~=3.7.7.1',
+'pyds9~=1.8.1',
+'daomop~=0.3.3',
+'setuptools~=56.0.0',
+'ccdproc~=2.1.1']
+
 setup(
     name="daomop",
     version=version['__version__'],
