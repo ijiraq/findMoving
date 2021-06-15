@@ -1,0 +1,74 @@
+#!/bin/bash
+source ${HOME}/.profile
+
+
+htcondor_dir=$(pwd)
+
+function mcp {
+    loop_counter=0
+    while true
+    do
+        sl=${RANDOM}
+	[ -f "${htcondor_dir}/cadcproxy.pem" ] && cadcproxy="${htcondor_dir}/cadcproxy.pem" || cadcproxy="${HOME}/.ssl/cadcproxy.pem"
+        let "sl %= 25"
+	vcp --certfile ${cadcproxy} -v $1 $2 && break || sleep ${sl} && loop_counter=$((loop_counter+1)) && [ "$loop_counter" -lt "1000" ] || return 
+    done
+}
+
+function gt { $(echo  ${1} ${2} | awk ' { if ( $1 > $2 ) { print("true") } else { print("false") }}' ); }
+
+# cadc-get-cert --cert cadcproxy.pem || exit
+basedir=$1 && shift
+vos_uri=$1 && shift
+pointing=$1 &&shift
+chip=$1 && shift
+ccd=$(echo ${chip} | awk ' { printf("%03d",$1) } ' )
+nstacks=$1 && shift
+
+filter="HSC-R2"
+exptype="MASKED"
+stack_rerun="sns_weighted"
+diff_rerun="diff"
+
+
+angle_min=-10
+angle_max=10
+rate_min=0.5
+rate_max=5.0
+angle_step=2.5
+rate_step=0.5
+
+
+# pull the DIFF tar ball for this CCD from DIFFS/pointing directory on VOSpace.
+if [ 10 -gt 1 ] 
+then
+mcp "${vos_uri}/DIFFS/${pointing}/DIFF-${pointing}-${ccd}_masked.tar" ./  && tar xvf DIFF-${pointing}-${ccd}_masked.tar
+for filename in $(find ./ -name "*_masked.fits" -print ) 
+do
+	newname=`echo ${filename} | sed -e 's/DIFFEXP/MASKED/' | sed -e 's/_masked.fits/.fits/'`
+	mv ${filename} ${newname}
+done
+fi
+
+
+storage=${vos_uri}/STACKS_V4/${pointing}/${ccd}
+vmkdir -p ${storage}
+
+daomop-sns ${basedir} \
+	   --rerun ${diff_rerun}:${stack_rerun} \
+           --exptype ${exptype} \
+	   --rate-min ${rate_min} \
+	   --rate-max ${rate_max} \
+	   --rate-step ${rate_step} \
+	   --angle-min ${angle_min} \
+	   --angle-max ${angle_max} \
+	   --angle-step ${angle_step} \
+	   --pointing ${pointing} \
+	   --n-sub-stacks ${nstacks} \
+	   --ccd ${chip} \
+	   --mask \
+	   --section-size 500 \
+   	   --clip 16 \
+           --log-level INFO  || exit
+
+# mcp "${basedir}/rerun/${stack_rerun}/${exptype}/${pointing}/${filter}/STACK*.fits.fz" ${storage}/ 
