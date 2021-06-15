@@ -1,10 +1,9 @@
 numpy
 astropy
+ccdproc
 pyraf
 vos
 matplotlib
 scipy
 ephem
 pyds9
-daomop
-setuptools
