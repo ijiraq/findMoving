@@ -22,7 +22,7 @@ base_parser.add_argument('--log-level', help="What level to log at? (ERROR, INFO
                          choices=['INFO', 'ERROR', 'DEBUG'])
 
 
-def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=None):
+def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=[]):
     _filelist = []
     exptype = exptype is not None and f"{exptype}" or "*"
     visit = visit is not None and f"{visit:07d}" or "???????"
@@ -33,10 +33,13 @@ def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=None):
         if not re.search(exptype+'-[0-9]{7}-[0-9]{3}.fits', path.name):
             continue
         full_path = str(path.resolve())
+        filtered_in = True
         for pattern in filters:
             logging.debug(f"Filtering {full_path} using pattern: {pattern}")
             if not re.search(str(pattern), full_path):
+                filtered_in = False
                 break
+        if filtered_in:
             _filelist.append(full_path)
     _filelist = np.unique(_filelist)
     logging.info(f"Returning list of {len(_filelist)} files.")
