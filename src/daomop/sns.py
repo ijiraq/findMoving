@@ -132,6 +132,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     ccd_data = {}
     
     for image in hdus:
+        logging.info("Openning {image} to add to stack")
         with fits.open(image) as hdu:
             wcs_header = kwargs['astheads'][hdu[0].header['IMAGE']]
             # wcs_header = hdu[1].header.copy()
@@ -509,8 +510,8 @@ def main():
     logging.info(f"Sorting list of {len(images)} based on mjd")
     for image in images:
         try:
-            with fits.open(image) as hdu:
-                mjds.append(time.Time(mid_exposure_mjd((hdu[0]))))
+            with fits.open(image, mode='update') as hdu:
+                mjds.append(time.Time(mid_exposure_mjd(hdu[0])))
         except Exception as ex:
             logging.error(str(ex))
             logging.error(f"Failed to open {image}")
@@ -579,6 +580,8 @@ def main():
             for key in hdus:
                 with fits.open(key) as hdul:
                     image = hdul[0].header['IMAGE']
+                    hduc = fits.HDUList()
+                    hduc.append(fits.PrimaryHDU(header=hdul[0].header))
                     w = WCS(astheads[image])
                     try:
                         x, y = w.all_world2pix(args.centre[0], args.centre[1], 0)
@@ -602,14 +605,15 @@ def main():
                             logging.error(f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdul[0].header['FRAMEID']}")
                             data = np.ones((y2-y1+1)*(x2-x1+1))*np.nan
                             data.shape = y2-y1+1, x2-x1+1
-                        hdul[idx].data = data
-                        hdul[idx].header['XOFFSET'] = x1
-                        hdul[idx].header['YOFFSET'] = y1
+                        hduc.append(fits.ImageHDU(data=data, header=hdul[idx].header))
+                        hduc[-1].header['XOFFSET'] = x1
+                        hduc[-1].header['YOFFSET'] = y1
                     astheads[image]['CRPIX1'] -= x1
                     astheads[image]['CRPIX2'] -= y1
-                    tt_file = tempfile.NamedTemporaryFile()
-                    hdul.writeto(tt_file)
-                    chdus[tt_file.name] = hdul
+                    # tt_file = tempfile.NamedTemporaryFile(delete=False)
+                    # logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
+                    # hduc.writeto(tt_file)
+                    chdus[key] = hduc
 
                     hdul.close()
             hdus = chdus
