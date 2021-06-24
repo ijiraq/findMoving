@@ -13,7 +13,7 @@ from astropy.time import Time
 from astropy.wcs import WCS
 from mp_ephem import BKOrbit, EphemerisReader
 from mp_ephem.ephem import Observation
-from vos import Client
+from vos import Client, version
 import time
 
 from . import daophot
@@ -23,7 +23,6 @@ from . import util
 config = settings.AppConfig()
 
 field_ids = {3068: 'P68', 3071: 'P71', 3072: 'P72'}
-
 
 def start_ds9(name):
     c = 0
@@ -213,6 +212,7 @@ def main(orbit=None, **kwargs):
     discovery = kwargs['discovery']
     nimg = kwargs['nimg']
     client = Client()
+    
 
     int_rate = int(rate * 10)
     int_angle = int((angle % 360) * 10)
@@ -246,7 +246,7 @@ def _main(**kwargs):
     if 'provisional_name' not in kwargs:
         kwargs['provisional_name'] = kwargs['p_name']
     ast_filename = f"{kwargs['provisional_name']}.mpc"
-    logging.info(f"Attempting measures of {kwargs['provisional_name']}, will write to {ast_filename}")
+    logging.info(f"Attempting measurement of {kwargs['provisional_name']}, will write to {ast_filename}")
     obs = {}
     kwargs['discovery'] = True
     if os.access(ast_filename, os.R_OK):
@@ -361,6 +361,7 @@ def run():
                              default=None, type=str)
     args = main_parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
+    logging.info(f"Using vos:{version.version}")
     start_ds9('validate')
     args.func(args)
 
