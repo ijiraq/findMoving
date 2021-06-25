@@ -671,10 +671,11 @@ def main():
                 expnum = reference_hdu[0].header.get('FRAMEID', 'HSCA0000000').replace('HSCA', '')
                 output_filename = f'STACK-{reference_filename}-{index:02d}-' \
                                   f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
-            output_uri = f"vos:NewHorizons/S20A-OT04/STACKS_V4/{int(args.pointing):05d}/{int(args.ccd):03d}"
-            if vos.Client().access(f"{output_uri}/{output_filename}"):
-                logging.warning(f"{output_filename} already in {output_uri}, skipping")
-                continue
+            # Removed check of VOSpace as now running on arcade
+            # output_uri = f"vos:NewHorizons/S20A-OT04/STACKS_V4/{int(args.pointing):05d}/{int(args.ccd):03d}"
+            # if vos.Client().access(f"{output_uri}/{output_filename}"):
+            #     logging.warning(f"{output_filename} already in {output_uri}, skipping")
+            #     continue
             output_filename = os.path.join(output_dir, output_filename)
             if os.access(output_filename, os.R_OK):
                 logging.warning(f'{output_filename} exists, skipping')
