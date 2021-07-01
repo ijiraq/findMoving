@@ -57,7 +57,7 @@ WORKDIR ${BUILDDIR}
 COPY src  ./
 RUN python3 -m pip install -r requirements.txt
 RUN python3 setup.py install 
-
+RUN apt install -q -y cfitsio
 
 RUN mkdir /skaha
 ADD init.sh /skaha/
