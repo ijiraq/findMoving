@@ -471,6 +471,11 @@ def main():
     input_rerun, output_rerun = util.parse_rerun(args.basedir, args.rerun)
 
     output_dir = os.path.join(output_rerun, args.exptype, args.pointing, args.filter)
+    arc_dir = os.path.join("arc:projects/NewHorizons/DATA/HSC/rerun/sns_weighted/",
+                           args.exptype,
+                           args.pointing,
+                           args.filter)
+
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f'Writing results to {output_dir}')
 
@@ -672,11 +677,14 @@ def main():
                 output_filename = f'STACK-{reference_filename}-{index:02d}-' \
                                   f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
             # Removed check of VOSpace as now running on arcade
-            # output_uri = f"vos:NewHorizons/S20A-OT04/STACKS_V4/{int(args.pointing):05d}/{int(args.ccd):03d}"
-            # if vos.Client().access(f"{output_uri}/{output_filename}"):
-            #     logging.warning(f"{output_filename} already in {output_uri}, skipping")
-            #     continue
             output_filename = os.path.join(output_dir, output_filename)
+            output_uri = f"vos:NewHorizons/S20A-OT04/STACKS_V4/{int(args.pointing):05d}/{int(args.ccd):03d}"
+            try:
+                if vos.Client().access(f"{arc_dir}/{output_filename}"):
+                    logging.warning(f"{output_filename} already in {arc_dir}, skipping")
+                    continue
+            except Exception as ex:
+                logging.warning(f'Exception while checking for output in {arc_dir}: {ex}')
             if os.access(output_filename, os.R_OK):
                 logging.warning(f'{output_filename} exists, skipping')
                 continue
