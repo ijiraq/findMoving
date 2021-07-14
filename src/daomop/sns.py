@@ -475,6 +475,7 @@ def main():
                            args.exptype,
                            args.pointing,
                            args.filter)
+    vos_dir = os.path.join("arc:NewHorizons/S20A-OT4/STACKS_V4/", args.pointing)
 
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f'Writing results to {output_dir}')
@@ -685,6 +686,12 @@ def main():
                     continue
             except Exception as ex:
                 logging.warning(f'Exception while checking for output in {arc_dir}: {ex}')
+            try:
+                if vos.Client().access(f"{vos_dir}/{output_filename}"):
+                    logging.warning(f"{output_filename} already in {vos_dir}, skipping")
+                    continue
+            except Exception as ex:
+                logging.warning(f'Exception while checking for output in {vos_dir}: {ex}')
             if os.access(output_filename, os.R_OK):
                 logging.warning(f'{output_filename} exists, skipping')
                 continue
