@@ -475,7 +475,7 @@ def main():
                            args.exptype,
                            args.pointing,
                            args.filter)
-    vos_dir = os.path.join("arc:NewHorizons/S20A-OT4/STACKS_V4/", args.pointing)
+    vos_dir = os.path.join("vos:NewHorizons/S20A-OT4/STACKS_V4/", args.pointing, f"{args.ccd:03d}")
 
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f'Writing results to {output_dir}')
