@@ -3,7 +3,6 @@ import logging
 import os
 import tempfile
 import numpy as np
-import vos
 from astropy import time, units
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
@@ -475,7 +474,6 @@ def main():
                            args.exptype,
                            args.pointing,
                            args.filter)
-    vos_dir = os.path.join("vos:NewHorizons/S20A-OT4/STACKS_V4/", args.pointing, f"{args.ccd:03d}")
 
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f'Writing results to {output_dir}')
@@ -679,22 +677,6 @@ def main():
                                   f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
             # Removed check of VOSpace as now running on arcade
             output_filename = os.path.join(output_dir, output_filename)
-            output_uri = f"vos:NewHorizons/S20A-OT04/STACKS_V4/{int(args.pointing):05d}/{int(args.ccd):03d}"
-            try:
-                if vos.Client().access(f"{arc_dir}/{output_filename}"):
-                    logging.warning(f"{output_filename} already in {arc_dir}, skipping")
-                    continue
-            except Exception as ex:
-                logging.warning(f'Exception while checking for output in {arc_dir}: {ex}')
-            try:
-                if vos.Client().access(f"{vos_dir}/{output_filename}"):
-                    logging.warning(f"{output_filename} already in {vos_dir}, skipping")
-                    continue
-            except Exception as ex:
-                logging.warning(f'Exception while checking for output in {vos_dir}: {ex}')
-            if os.access(output_filename, os.R_OK):
-                logging.warning(f'{output_filename} exists, skipping')
-                continue
             output = stack_function(hdus, reference_hdu, {'dra': dra, 'ddec': ddec},
                                     stacking_mode=args.stack_mode, section_size=args.section_size, astheads=astheads)
             logging.debug(f'Got stack result {output}, writing to {output_filename}')
