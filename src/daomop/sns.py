@@ -117,7 +117,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     :return: fits.HDUList
     """
     # Project the input images to the same grid using interpolation
-    logging.debug(f"Called with {kwargs}")
+    # logging.debug(f"Called with {kwargs}")
     if stacking_mode not in ['MEDIAN', 'MEAN']:
         logging.warning(f'{stacking_mode} not available for swarp stack. Setting to MEAN')
         stacking_mode = 'MEAN'
@@ -132,7 +132,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     
     for image in hdus:
         logging.info(f"Opening {image} to add to stack")
-        with fits.open(image) as hdu:
+        with fits.open(image, mode='update') as hdu:
             wcs_header = kwargs['astheads'][hdu[0].header['IMAGE']]
             # wcs_header = hdu[1].header.copy()
             dt = (mid_exposure_mjd(hdu[0]) - reference_date)
