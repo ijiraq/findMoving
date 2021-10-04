@@ -523,7 +523,7 @@ def main():
 
     ind = np.argsort(mjds)
     # sort the images by mjd
-    images = new_images[ind]
+    images = numpy.array(new_images)[ind]
 
     # In debug mode just do three images or less if there aren't three
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
@@ -622,9 +622,9 @@ def main():
                     tt_file = tempfile.NamedTemporaryFile(delete=False)
                     logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
                     hduc.writeto(tt_file)
-                    chdus[key] = tt_file
+                    chdus[tt_file] = hduc
             hdus = chdus
-
+        print(hdus.keys())
         hdus2 = {}
         # Remove from the list HDULists where there is no data left (after cutout)
         for key in hdus:

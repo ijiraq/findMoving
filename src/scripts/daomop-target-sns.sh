@@ -39,10 +39,11 @@ do
    y=$1 && shift
    rate=$1 && shift
    angle=$1 && shift
-   visit=$1 && shift
-   stack=$1 && shift
    ra=$1 && shift
    dec=$1 && shift
+   mjd=$1 && shift
+   stack=$1 && shift
+   visit=$1 && shift
    num=$1 && shift
    echo "${pointing}.${ccd}.${index}.${x}.${y}.${rate}.${angle}.${visit}.${stack}.${ra}.${dec}.${num}"
    if [ ${exptype} == "CORR" ]

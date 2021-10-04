@@ -120,7 +120,7 @@ C     Get the observer location at fake date + 1 day (for rates)
       write(output_lun, 9002) 'obj_id', 'RA', 'DEC', 'Delta', 
      $     'mag', 'a', 
      $     'e', 'inc',
-     $     'node', 'peri', 'M', 'H', 'dra', 'ddec'
+     $     'node', 'peri', 'M', 'H', 'dra_arc', 'ddec_arc'
 
       do i = 1, 2
 C     Loop over making fake objects until we have max_objects in frame
