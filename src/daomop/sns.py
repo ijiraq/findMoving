@@ -131,7 +131,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     ccd_data = {}
     
     for image in hdus:
-        logging.info("Openning {image} to add to stack")
+        logging.info(f"Opening {image} to add to stack")
         with fits.open(image) as hdu:
             wcs_header = kwargs['astheads'][hdu[0].header['IMAGE']]
             # wcs_header = hdu[1].header.copy()
@@ -491,6 +491,8 @@ def main():
     logging.info(f'Loading all images matching pattern: {input_rerun}')
     images = np.array(get_image_list(input_rerun, args.exptype, ccd=args.ccd,
                                      visit=args.visit, filters=[args.pointing, args.filter]))
+    if not len(images) > 0:
+        raise OSError(f'No images found using {input_rerun}')
 
     # check if there are astrometric headers to overwrite the WCS in the HDU
     ast_path = os.path.join(input_rerun.replace('processCcdOutputs', 'diff').replace('diff', 'asthead'), 'mega')
@@ -506,24 +508,22 @@ def main():
                 astheads[filename] = hdu_list[1].header
             logging.warning(f"Failed to get astheader for {ast_filename} using {filename}")
         
-    if not len(images) > 0:
-        raise OSError(f'No images found using {input_rerun}')
-
     # Organize images in MJD order.
     mjds = []
     logging.info(f"Sorting list of {len(images)} based on mjd")
+    new_images = []
     for image in images:
         try:
             with fits.open(image, mode='update') as hdu:
                 mjds.append(time.Time(mid_exposure_mjd(hdu[0])))
+                new_images.append(image)
         except Exception as ex:
             logging.error(str(ex))
-            logging.error(f"Failed to open {image}")
-            del images[image]
+            logging.error(f"Failed to open {image} not using")
 
     ind = np.argsort(mjds)
     # sort the images by mjd
-    images = images[ind]
+    images = new_images[ind]
 
     # In debug mode just do three images or less if there aren't three
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
@@ -569,11 +569,17 @@ def main():
                 # This HDUList order of 1 for science data and 2 for mask and 3 for uncertainty
                 # is a hard coding of the LSST Pipeline order from 2020.
                 image = swarped_hdus[idx]
+                # noinspection PyUnresolvedReferences
                 hdus[idx][1].header['RECTIFY'] = 'DONE'
+                # noinspection PyUnresolvedReferences
                 hdus[idx][1].data = image.data
+                # noinspection PyUnresolvedReferences
                 hdus[idx][1].header = image.header
+                # noinspection PyUnresolvedReferences
                 hdus[idx][2].data = image.mask
+                # noinspection PyUnresolvedReferences
                 hdus[idx][3].data = image.uncertainty
+                # noinspection PyUnresolvedReferences
                 hdus.close()
 
         if args.centre is not None:
@@ -591,7 +597,6 @@ def main():
                         x, y = w.all_world2pix(args.centre[0], args.centre[1], 0)
                     except Exception as ex:
                         logging.error(str(ex))
-                        hdul = None
                         continue
                     logging.info(f'{image} {centre.to_string(style="hmsdms", sep=":")} -> {x},{y}')
                     x1 = int(max(0, x - box_size))
@@ -606,7 +611,7 @@ def main():
                             data = hdul[idx].data[y1:y2, x1:x2]
                         except Exception as ex:
                             logging.error(str(ex))
-                            logging.error(f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdul[0].header['FRAMEID']}")
+                            logging.error(f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdul[0].header['FRAMEID']}, blanking this frame.")
                             data = np.ones((y2-y1+1)*(x2-x1+1))*np.nan
                             data.shape = y2-y1+1, x2-x1+1
                         hduc.append(fits.ImageHDU(data=data, header=hdul[idx].header))
@@ -614,12 +619,10 @@ def main():
                         hduc[-1].header['YOFFSET'] = y1
                     astheads[image]['CRPIX1'] -= x1
                     astheads[image]['CRPIX2'] -= y1
-                    # tt_file = tempfile.NamedTemporaryFile(delete=False)
-                    # logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
-                    # hduc.writeto(tt_file)
-                    chdus[key] = hduc
-
-                    hdul.close()
+                    tt_file = tempfile.NamedTemporaryFile(delete=False)
+                    logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
+                    hduc.writeto(tt_file)
+                    chdus[key] = tt_file
             hdus = chdus
 
         hdus2 = {}
