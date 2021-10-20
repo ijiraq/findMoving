@@ -21,10 +21,19 @@ from . import settings
 from . import util
 
 config = settings.AppConfig()
+DS9_NAME = 'validate'
 
-field_ids = {3068: 'P68', 3071: 'P71', 3072: 'P72'}
+field_ids = {3068: 'P68', 3071: 'P71', 3072: 'P72', 3147: 'Q47', 3148: 'Q48'}
 
-def start_ds9(name):
+
+def start_ds9(name=DS9_NAME):
+    """
+    START a DS9 viewer with name 'name' if one with that name isn't already running.
+    :param name: name to give the ds9 server.
+    :return: ds9 server object.
+    :rtype DS9
+    """
+
     c = 0
     while True:
         try:
@@ -33,7 +42,7 @@ def start_ds9(name):
         except Exception as ex:
             if c > 10:
                 raise ex
-            c +=1
+            c += 1
             logging.debug("Trying again to connect to ds9 after 5s wait")
             time.sleep(5)
 
@@ -47,11 +56,32 @@ def start_ds9(name):
 
 
 def get_ds9(name):
+    """
+    Get a connection to 'name' DS9 server, don't start one if it isn't already going.
+    :param name: name of the server to connect to.
+    :return: ds9 server connection
+    :rtype DS9
+    """
     return pyds9.DS9(target=name, start=False)
 
 
 def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
-                target='validate'):
+                target=DS9_NAME):
+    """
+    Load a list of images into a ds9 session.
+
+    Note: orbit overrides what is in ra/dec/dra/ddec
+
+    :param images: list of image filenames (full path)
+    :param wcs_dict: Dictionary of WCS objects (wcs_dict[images[0]] will be WCS associated with image in frame 1)
+    :param orbit: a BKObrbit object used to put the circle on the target based on the MJD of the image.
+    :param ra: RA of source being measured (deg; used put a circle on ds9 image)
+    :param dec: DEC of the source being measured (deg; used put a circle on ds9 image)
+    :param dra: draw an error ellipse at ra/dec using dra/ddec sizes if no orbit given.
+    :param ddec: draw an error ellipse at ra/dec using dra/ddec sizes if no orbit given.
+    :param target: name of the ds9 session to put images into (aka 'validate')
+    :return:
+    """
     ds9 = get_ds9(target)
     ds9.set('frame delete all')
     ds9.set('zscale')
@@ -85,7 +115,19 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
     ds9.set('frame first')
 
 
-def measure_image(p_name, images, wcs_dict, discovery=False, target='validate'):
+def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zpt=26.9):
+    """
+
+    :param p_name: provisional name of the source being measured
+    :param images: list of images being measured.  Expect that image[0] is in ds9 Frame 1
+    :param wcs_dict: dictionary of WCS objects, one for each image. wcs_dict[images[0]] is the WCS objet for image in frame 1.
+    :param discovery: Is this a discovery image (add a '*' to the MPC record)
+    :param target: Name of the DS9 session, set by xpa (i.e. validate)
+    :param zpt: zeropoint of the frame.
+    :return: an mpc_ephem Observation record.
+    :rtype: list(ObsRecord)
+
+    """
     ds9 = get_ds9(target)
     # Build a map of allowed key strokes
     allowed_keys = {'x': ('', 'centroid at this location'),
@@ -93,6 +135,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target='validate'):
                     'p': ('', 'Previous frame'),
                     'n': ('', 'Next frame'),
                     'r': ('', 'Create a NULL observation.')}
+    print(allowed_keys)
     for key in [x.split() for x in config.read("MPC.NOTE1OPTIONS")]:
         allowed_keys[key[0].lower()] = key
 
@@ -134,7 +177,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target='validate'):
                                 sky_inner_radius=15,
                                 sky_annulus_width=10,
                                 apcor=0.3,
-                                zmag=27.3,
+                                zmag=zpt,
                                 maxcount=1000,
                                 extno=1,
                                 exptime=90.0,
@@ -172,37 +215,29 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target='validate'):
             logging.warning(f"Got: {ra},{dec}")
 
         record_key = obsdate
-        obs[record_key] = Observation(
-            null_observation=key == 'r',
-            provisional_name=p_name,
-            comment="{} {} {}".format(*util.from_provisional_name(p_name)),
-            note1=note1,
-            note2='C',
-            date=obsdate,
-            ra=ra,
-            dec=dec,
-            mag=obs_mag,
-            mag_err=obs_mag_err,
-            band='r',
-            observatory_code='568',
-            discovery=discovery,
-            xpos=x,
-            ypos=y,
-            frame=image,
-            astrometric_level=0)
+        obs[record_key] = Observation(null_observation=key == 'r', provisional_name=p_name,
+                                      comment="{} {} {}".format(*util.from_provisional_name(p_name)), note1=note1, note2='C',
+                                      date=obsdate, ra=ra, dec=dec, mag=obs_mag, mag_err=obs_mag_err, observatory_code='568',
+                                      discovery=discovery, xpos=x, ypos=y, frame=os.path.splitext(os.path.basename(image))[0])
 
     return obs
 
 
 def main(orbit=None, **kwargs):
     """
+    This is the driver program.  Gets the images from VOSpace or the local filesystem.
 
-    :param kwargs:
+    expected kwargs:
+    pointing, index, ccd, rate, angle, ra, dec, p_name, discovery, nimg, zpt, dbimages
+
+    :param kwargs: these are the 'args' sent on the commandline or in an input file.
+    :param orbit: the orbit of the object that should be in the frames reference by kwargs provided.
     :type orbit: BKOrbit
-    :return:
+    :return: list of observations
+    :rtype list(ObsRecod)
     """
+
     pointing = kwargs['pointing']
-    index = kwargs['index']
     ccd = kwargs['ccd']
     rate = kwargs['rate']
     angle = kwargs['angle']
@@ -211,8 +246,9 @@ def main(orbit=None, **kwargs):
     p_name = kwargs['p_name']
     discovery = kwargs['discovery']
     nimg = kwargs['nimg']
+    zpt = kwargs.get('zpt', 26.9)
+    dbimages = kwargs.get('dbimages', 'vos:NewHorizons/dbimages/')
     client = Client()
-    
 
     int_rate = int(rate * 10)
     int_angle = int((angle % 360) * 10)
@@ -221,10 +257,13 @@ def main(orbit=None, **kwargs):
     for idx in range(nimg):
         expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{idx}'
         image = f'{expnum}p{ccd:02d}.fits'
-        dbimages = f"vos:NewHorizons/dbimages/{pointing:05d}/{ccd:03d}"
+        dbimages = f"{dbimages}/{pointing:05d}/{ccd:03d}"
         url = f'{dbimages}/{expnum}/ccd{ccd:02d}/{image}'
+        logging.info(f"Looking for imaegs in {url}")
         try:
-            if not os.access(image, os.R_OK):
+            if os.access(url, os.R_OK):
+                image = url
+            elif not os.access(image, os.R_OK):
                 # get from VOSpace is not already on disk
                 client.copy(url, image)
         except Exception as ex:
@@ -238,11 +277,18 @@ def main(orbit=None, **kwargs):
                 dra=rate*math.cos(math.radians(angle)),
                 ddec=rate*math.sin(math.radians(angle)))
 
-    obs = measure_image(p_name, images, wcs_dict, discovery=discovery)
+    obs = measure_image(p_name, images, wcs_dict, discovery=discovery, zpt=zpt)
     return obs
 
 
 def _main(**kwargs):
+    """
+    Call main to get ephemeris lines and replace existing lines in the input file with these new measures.
+
+    :param kwargs: see main()
+    :return: None
+    """
+
     if 'provisional_name' not in kwargs:
         kwargs['provisional_name'] = kwargs['p_name']
     ast_filename = f"{kwargs['provisional_name']}.mpc"
@@ -288,6 +334,11 @@ def _main(**kwargs):
 
 
 def get_valid_obs_count(observations):
+    """
+    Count the number of valid observations in an array of Observations
+    :param observations: List of Observations
+    :return: number of observations in list that are valid.
+    """
     nobs = 0
     for obs in observations:
         if not obs.null_observation:
@@ -296,6 +347,12 @@ def get_valid_obs_count(observations):
 
 
 def main_args(args):
+    """
+    given a arguement set from ArgumentParser call the _main program with the correct arguments.
+
+    :param args:
+    :return:
+    """
     kwargs = vars(args)
     # kwargs['p_name'] = "ML{:03d}{:02d}".format(kwargs['ccd'],kwargs['index'])
     kwargs['p_name'] = util.get_provisional_name(**kwargs)
@@ -304,6 +361,12 @@ def main_args(args):
 
 
 def main_list(args):
+    """
+    Given a filename with a set of arguments call _main for ecah row in the input file.
+
+    :param args:
+    :return:
+    """
     t = Table.read(args.detections, format='ascii')
     logging.debug(f"read table of len {len(t)} with columns {t.colnames}")
 
@@ -335,6 +398,10 @@ def main_list(args):
 
 
 def run():
+    """
+    This is the actual program.  Builds the parser command can calls main_arg or main_list
+    :return:
+    """
     main_parser = argparse.ArgumentParser()
     subparsers = main_parser.add_subparsers(help='sub-command help')
     parser_file = subparsers.add_parser('file', help='a help')
@@ -344,7 +411,7 @@ def run():
     parser_args = subparsers.add_parser('args', help='a help')
     parser_args.add_argument('pointing', type=int)
     parser_args.add_argument('ccd', type=int)
-    parser_args.add_argument('index', help="index of the detection" )
+    parser_args.add_argument('index', help="index of the detection")
     parser_args.add_argument('x', type=float)
     parser_args.add_argument('y', type=float)
     parser_args.add_argument('rate', type=float)
@@ -359,10 +426,13 @@ def run():
     main_parser.add_argument('--skip', action="store_true")
     main_parser.add_argument('--provisional_name', help='Name of source in target file',
                              default=None, type=str)
+    main_parser.add_argument('--dbimages', type=str, help="Directory where the images to measure are being kept", default="./")
+    main_parser.add_argument('--zpt', help='ZeroPoint for daophot to use.', type=float, default=26.9)
+
     args = main_parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
     logging.info(f"Using vos:{version.version}")
-    start_ds9('validate')
+    start_ds9()
     args.func(args)
 
 
