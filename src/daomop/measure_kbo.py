@@ -257,9 +257,11 @@ def main(orbit=None, **kwargs):
     for idx in range(nimg):
         expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{idx}'
         image = f'{expnum}p{ccd:02d}.fits'
-        dbdir = f"{dbimages}/{pointing:05d}/{ccd:03d}"
-        url = f'{dbdir}/{expnum}/ccd{ccd:02d}/{image}'
-        logging.info(f"Looking for images in {url}")
+        if dbimages[0:4] == 'vos:':
+            url = f'{dbimages}/{pointing:05d}/ccd{ccd:02d}/{image}'
+        else:
+            url = f"{dbimages}/{image}"
+        logging.info(f"Looking for image at {url}")
         try:
             if os.access(url, os.R_OK):
                 image = url
