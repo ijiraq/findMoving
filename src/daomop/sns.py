@@ -697,7 +697,7 @@ def main():
             output[0].header['ASTLEVEL'] = 1
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
-            output.writeto(output_filename)
+            output.writeto(output_filename, overwrite=True)
 
     return 0
 
