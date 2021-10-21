@@ -1,24 +1,24 @@
+"""
+install the daomop!
+"""
 from setuptools import setup, find_packages
-
-# install the daomop! -- test
 
 version = {}
 with open("daomop/version.py") as fp:
     exec(fp.read(), version)
 print(version['__version__'])
 
-install_requires=[
-'numpy~=1.20.1',
-'astropy~=4.2',
-'pyraf~=2.1.15',
-'vos~=3.3',
-'matplotlib~=3.3.4',
-'scipy~=1.6.1',
-'ephem~=3.7.7.1',
-'pyds9~=1.8.1',
-'daomop~=0.3.3',
-'setuptools~=56.0.0',
-'ccdproc~=2.1.1']
+install_requires = ['numpy~=1.20.1',
+                    'astropy~=4.2',
+                    'pyraf~=2.1.15',
+                    'vos~=3.3',
+                    'matplotlib~=3.3.4',
+                    'scipy~=1.6.1',
+                    'ephem~=3.7.7.1',
+                    'pyds9~=1.8.1',
+                    'daomop~=0.3.3',
+                    'setuptools~=56.0.0',
+                    'ccdproc~=2.1.1']
 
 setup(
     name="daomop",
@@ -40,6 +40,7 @@ setup(
             "daomop-train-cnn = daomop.train_model:main",
             "daomop-build-plant-db = daomop.build_plant_list_db:main",
             "daomop-intelligentMasker = daomop.intelligentMasker:main",
+            "daomop-resolve-target = daomop.resolve_target",
         ],
     }
 )

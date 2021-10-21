@@ -418,7 +418,6 @@ def run():
     parser_args.add_argument('y', type=float)
     parser_args.add_argument('rate', type=float)
     parser_args.add_argument('angle', type=float)
-    parser_args.add_argument('visit', type=int)
     parser_args.add_argument('stack', type=str)
     parser_args.add_argument('ra', type=float, help="RA of initial object location (deg)")
     parser_args.add_argument('dec', type=float, help="DEC of initial object location (deg)")
