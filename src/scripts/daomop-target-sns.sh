@@ -83,9 +83,10 @@ while read -r line; do
     fi
 
     section=500
-    chip=$(printf %03d "${ccd}")
-    pointing=$(printf %05d "${pointing}")
-    index=$(printf %04d "${index}")
+    # put leading zeros in but remove them first, if they are already there.
+    chip=$(printf %03d "${ccd##0}")
+    pointing=$(printf %05d "${pointing##0}")
+    index=$(printf %04d "${index##0}")
 
     # Create locations to store the stamps... do this before we both making the stamps.
     dbimages="vos:NewHorizons/dbimages/"
