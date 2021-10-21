@@ -239,6 +239,7 @@ def main(orbit=None, **kwargs):
 
     pointing = kwargs['pointing']
     ccd = kwargs['ccd']
+    index = kwargs['index']
     rate = kwargs['rate']
     angle = kwargs['angle']
     ra = kwargs['ra']
@@ -257,10 +258,7 @@ def main(orbit=None, **kwargs):
     for idx in range(nimg):
         expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{idx}'
         image = f'{expnum}p{ccd:02d}.fits'
-        if dbimages[0:4] == 'vos:':
-            url = f'{dbimages}/{pointing:05d}/ccd{ccd:02d}/{image}'
-        else:
-            url = f"{dbimages}/{image}"
+        url = f'{dbimages}/{pointing:05d}/{ccd:03d}/{index:04d}/{image}'
         logging.info(f"Looking for image at {url}")
         try:
             if os.access(url, os.R_OK):
@@ -293,7 +291,10 @@ def _main(**kwargs):
 
     if 'provisional_name' not in kwargs:
         kwargs['provisional_name'] = kwargs['p_name']
+    if kwargs['provisional_name'] is None:
+        kwargs['provisional_name'] = util.get_provisional_name(**kwargs)
     ast_filename = f"{kwargs['provisional_name']}.mpc"
+
     logging.info(f"Attempting measurement of {kwargs['provisional_name']}, will write to {ast_filename}")
     obs = {}
     kwargs['discovery'] = True
@@ -418,6 +419,7 @@ def run():
     parser_args.add_argument('y', type=float)
     parser_args.add_argument('rate', type=float)
     parser_args.add_argument('angle', type=float)
+    parser_args.add_argument('mag', type=float)
     parser_args.add_argument('stack', type=str)
     parser_args.add_argument('ra', type=float, help="RA of initial object location (deg)")
     parser_args.add_argument('dec', type=float, help="DEC of initial object location (deg)")
