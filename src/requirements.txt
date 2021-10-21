@@ -7,3 +7,4 @@ matplotlib
 scipy
 ephem
 pyds9
+mp_ephem
