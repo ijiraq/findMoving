@@ -138,8 +138,9 @@ def main():
 
     detections = Table.read(input_filename, format='ascii')
     if 'ra_rate' in detections.colnames and 'rate' not in detections.colnames:
+        # convert ra_rate and dec_rate from planting process to expected values for stacking.
         detections['rate'] = (detections['ra_rate']**2 + detections['dec_rate']**2)**0.5
-        detections['angle'] = numpy.degrees(numpy.arctan2(detections['dec_rate'], numpy.fabs(detections['ra_rate'])))
+        detections['angle'] = numpy.degrees(numpy.arctan2(-1*detections['dec_rate'], numpy.fabs(detections['ra_rate'])))
     if 'index' not in detections.colnames:
         detections['index'] = -1
 
