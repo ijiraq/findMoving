@@ -110,7 +110,7 @@ def resolve(pointing, chip, rate, angle, x, y, vos_basedir):
         logging.error("{ex}")
         return None
 
-    return {'stack': stack, 'ra': ra, 'dec': dec}
+    return {'stack': stack_image, 'ra': ra, 'dec': dec}
 
 
 def main():
