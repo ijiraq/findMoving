@@ -1,5 +1,7 @@
 import argparse
 import logging
+import string
+
 import numpy as np
 import re
 from pathlib import Path
@@ -18,7 +20,7 @@ base_parser.add_argument('--rerun', help="rerun directory containing the warped 
 base_parser.add_argument('--filter', help="Filter to stack", default="HSC-R2")
 base_parser.add_argument('--visit', type=int, help='visit to process.', default=None)
 base_parser.add_argument('--ccd', help="Which CCD to stack?", type=int, default=None)
-base_parser.add_argument('--log-level', help="What level to log at? (ERROR, INFO, DEBUG)", default="ERROR",
+base_parser.add_argument('--log-level', help="What level to log at?", default="ERROR",
                          choices=['INFO', 'ERROR', 'DEBUG'])
 
 
@@ -47,16 +49,41 @@ def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=[]):
 
 
 def get_provisional_name(pointing, ccd, index, **kwargs):
+    """
+    Get a provisional name based on the pointing, ccd and index values
+
+    value is Letter for the pointing '3000' ==> P '3100' ==> Q etc.
+             and HEX encoded value of {ccd:03d}{index:04d}
+
+    e.g.  3091 67 1 => P97a3931
+
+    :param pointing:  LSST pointing number
+    :param ccd: CCD on which source is detected
+    :param index: INDEX of detection on that CCD
+    :param kwargs: Not used
+    :return:
+    """
     logging.debug(f"{pointing} {ccd} {index} {kwargs}")
     try:
         index = int(index)
     except:
         index = 1
+    L = (string.digits + string.ascii_uppercase)[pointing//100-5]
     value = int(f"{ccd:03d}{index:04d}")
-    return f"P{str(pointing)[-2:]:2s}{hex(value)[2:]:4s}"
+    return f"{L}{str(pointing)[-2:]:2s}{hex(value)[2:]:4s}"
 
 
 def from_provisional_name(p_name):
+    """
+    Get the pointing, ccd and index from the provisional name
+
+    P97a3931 => 3097 67 1   (a3931) -> 0xa3931 -> turned in an integer -> first 3 digits are CCD next 4 are INDEX
+    P => 3000
+    Q => 3100
+    etc.
+    :param p_name:
+    :return: pointing, ccd, index
+    """
     if p_name[3] == 'x':
         index = int(f'0{p_name[3:]}', base=16)
         ccd = None
@@ -65,10 +92,7 @@ def from_provisional_name(p_name):
         ccd = _value[0:2]
         index = _value[2:2+4]
 
-    if p_name[0] == "P":
-        pointing = f"030{p_name[1:3]}"
-    else:
-        pointing = f"031{p_name[1:3]}"
+    pointing = ((string.digits + string.ascii_uppercase).find(p_name[0])+5) * 100 + int(p_name[1:3])
 
     return pointing, ccd, index
 
