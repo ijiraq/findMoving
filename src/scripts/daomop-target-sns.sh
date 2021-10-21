@@ -1,113 +1,117 @@
 #!/bin/bash
 
-function mcp {
+# Some command defaults:
+output="calib"
+filter="HSC-R2"
+loglevel="INFO"
+
+# Handy function to repeatedly attempt to put data to VOSpace.
+function mcp() {
     loop_counter=0
-    while true
-    do
-	vcp -v $1 $2 && break || sleep 10 && loop_counter=$((loop_counter+1)) &&
- [ "$loop_counter" -lt "1000" ] || return 
+    while true; do
+        vcp -v "$1" "$2" && break || sleep 10 && loop_counter=$((loop_counter + 1)) &&
+          [ "${loop_counter}" -lt "10" ] || return
     done
 }
 
-# [ $# -eq 7 ] || echo "Usage: $0 {basedir} {pointing} {ccd} {ra} {dec} {rate} {angle}"
-#  pointing   ccd   index         x         y   rate   angle    visit                                     stack                   ra                   dec   num
-#     3071     2    1297    816.73    321.14    2.5     5.0   218194   STACK-0218194-002-00-+02.50-+05.00.fits    287.1405757175446   -20.816734590737564    3
+
+if [ $# -lt 3 ]; then
+    echo "Usage: ${0} base_dir exptype pointing ccd index x y rate angle mag stack ra dec num"
+    echo ""
+    echo "${0} takes the inputs of where a source was found and creates a new set of stacks using a subset,"
+    echo " aka cutout, of the pixel data centred around the RA/DEC provided at the rate/angle requested."
+    echo " These cutouts can be used to measure the RA/DEC of the source in 'num' independent stacks of the"
+    echo " data taken on given night/field [aka pointing in LSST parlance]"
+    echo ""
+    echo " The cutout stacked data will be written to: base_dir/rerun/${output} "
+    echo " settings:"
+    echo " loglevel: ${loglevel}"
+    echo "   output: ${output}"
+    echo "   filter: ${filter}"
+    echo ""
+    echo "Where: "
+    echo "       base_dir: directory that contains the LSST Pipeline rerun directory with the images to stack."
+    echo "       exptype : type of LSST Pipeline images to stack (normally DIFFEXP, sometimes CORR or MASKED)."
+    echo "       pointing: the LSST Pipeline pointing number for this data (e.g. 03148)"
+    echo "       ccd     : the CCD to stack up"
+    echo "       index   : index number of source on that ccd (used to create provisional name during measure step)"
+    echo "       x       : The x-pixel location of the source in the searched stack set (ignored)"
+    echo "       y       : The y-pixel location of the source in the searched stack set (ignored)"
+    echo "       rate    : rate of motion to stack at (-ve implies target moving west)"
+    echo "       angle   : Angle to stack at 0 degrees is West, 90 is North"
+    echo "       mag     : magnitude of the source, expected for artificial sources."
+    echo "       stack   : name of the stack set where the srouce was found (ignored)"
+    echo "       ra      : RA to centre stack around"
+    echo "       dec     : DEC to centre stack around"
+    echo "       num     : How many groups of stacks to make, each group provides independent source measure"
+    exit 0
+fi
 
 basedir=$1 && shift
 exptype=$1 && shift
 input_filename=$1
-if [ ! -f $input_filename ] 
-then
-   input_filename=${TMPDIR:-/tmp}/track_file.txt
-   echo $@ > ${input_filename}
+if [ ! -f "${input_filename}" ]; then
+    input_filename="${TMPDIR:-/tmp}/track_file.txt"
+    echo "${@}" >"${input_filename}"
+    echo "Created temporary file ${input_filename} to hold input arguments "
 fi
 
-echo ${input_filename}
+echo "Reading inputs from ${input_filename}"
 
+while read -r line; do
+    set "$line"
+    if [ "$1" == "#" ]; then
+        continue
+    fi
+    pointing=$1 && shift
+    ccd=$1 && shift
+    index=$1 && shift
+    x=$1 && shift
+    y=$1 && shift
+    rate=$1 && shift
+    angle=$1 && shift
+    stack=$1 && shift
+    ra=$1 && shift
+    dec=$1 && shift
+    num=$1 && shift
+    echo "${pointing}.${ccd}.${index}.${x}.${y}.${rate}.${angle}.${stack}.${ra}.${dec}.${num}"
+    if [ "${exptype}" == "CORR" ]; then
+        input="processCcdOutputs"
+    else
+        input="diff"
+    fi
 
-while read -r line
-do
-   set $line
-   if [ $1 == "#" ] 
-   then
-      continue
-   fi
-   pointing=$1 && shift
-   ccd=$1 && shift
-   index=$1 && shift
-   x=$1 && shift
-   y=$1 && shift
-   rate=$1 && shift
-   angle=$1 && shift
-   ra=$1 && shift
-   dec=$1 && shift
-   mjd=$1 && shift
-   stack=$1 && shift
-   visit=$1 && shift
-   num=$1 && shift
-   echo "${pointing}.${ccd}.${index}.${x}.${y}.${rate}.${angle}.${visit}.${stack}.${ra}.${dec}.${num}"
-   if [ ${exptype} == "CORR" ]
-   then
-       input="processCcdOutputs"
-   else
-       input="diff"
-   fi
+    section=500
+    chip=$(echo "${ccd}" | awk '{printf("%03d",$1)}')
+    pointing=$(echo "${pointing}" | awk '{printf("%05d",$1)}')
+    dbimages="vos:NewHorizons/dbimages/${pointing}/${chip}"
 
-   vosbase="vos:NewHorizons/S20A-OT04/"
-   output="sns" 
-   filter="HSC-R2"
-   section=750
-   chip=$(echo ${ccd} | awk '{printf("%03d",$1)}')
-   pointing=$(echo ${pointing} | awk '{printf("%05d",$1)}')
-   dbimages="vos:NewHorizons/dbimages/${pointing}/${chip}"
+    echo "Stacking ${section}X${section}  pixel box around ${ra} ${dec} at rate: ${rate} angle: ${angle}"
+    daomop-sns "${basedir}" \
+        --swarp \
+        --pointing "${pointing}" \
+        --rerun "${input}":"${output}" \
+        --filter "${filter}" \
+        --ccd "${ccd}" \
+        --log-level "${loglevel}" \
+        --exptype "${exptype}" \
+        --group \
+        --centre "${ra}" "${dec}" \
+        --angle-min "${angle}" \
+        --angle-max "${angle}" \
+        --rate-min "${rate}" \
+        --rate-max "${rate}" \
+        --n-sub-stacks "${num}" \
+        --section-size "${section}" \
+        --clip 8
 
-# Get from VOSpace the diff images to be stacked for this sources
-# \rm -r ${basedir}/rerun/diff/deepDiff
-# tardir="${vosbase}/DIFFS/${pointing}"
-# for tarfile in "DIFF-${pointing}-${chip}_masked.tar" "DIFF-${chip}.tar"
-# do
-#     vcp  ${tardir}/${tarfile} ./ && break
-# done
-# [ -f ${tarfile} ] || ( echo "Failed to retrieve DIFFS" && exit -1 )
-# tar xvf ${tarfile}
-# rm ${tarfile}
+    echo "Copying stacks to ${dbimages}"
+    for stack in "${basedir}/rerun/${output}/${exptype}/${pointing}/${filter}/"*.fits; do
+        expnum=$(basename "${stack}" | awk -Fp '{printf("%s",$1)}')
+        ccd=$(basename "${stack}" | awk -Fp '{printf("%s",$2)}')
+        ccd=$(echo "${ccd%.fits}" | awk -Fp '{printf("ccd%02d", $1)}')
+        vmkdir -p "${dbimages}/${expnum}/${ccd}" || exit
+        mcp "${stack}" "${dbimages}/${expnum}/${ccd}/" || exit
+    done
 
-  for file in $(find ${basedir} -name "*_masked.fits" -print)
-  do
-      f=`echo ${file} | sed -e 's/_masked//'`
-      mv ${file} ${f}
-  done
-
-
-  echo "Stacking ${section}X${section}  pixel box around ${ra} ${dec} at rate: ${rate} angle: ${angle}"
-  daomop-sns  ${basedir}\
-      --swarp \
-      --pointing ${pointing} \
-      --rerun ${input}:${output} \
-      --filter HSC-R2 \
-      --ccd ${ccd} \
-      --log-level INFO \
-      --exptype ${exptype} \
-      --group \
-      --centre ${ra} ${dec} \
-      --angle-min ${angle} \
-      --angle-max ${angle} \
-      --angle-step 1 \
-      --rate-min ${rate} \
-      --rate-step 1 \
-      --rate-max ${rate} \
-      --n-sub-stacks ${num} \
-      --section-size ${section} \
-      --clip 8
-
-  echo "Copying stacks to ${dbimages}"
-  for stack in ${basedir}/rerun/${output}/${exptype}/${pointing}/${filter}/*.fits
-  do
-      expnum=$(basename ${stack} | awk -Fp '{printf("%s",$1)}')
-      ccd=$(basename ${stack} | awk -Fp '{printf("%s",$2)}')
-      ccd=$(echo ${ccd%.fits} | awk -Fp '{printf("ccd%02d", $1)}')
-      vmkdir -p ${dbimages}/${expnum}/${ccd} || exit
-      mcp ${stack} ${dbimages}/${expnum}/${ccd}/ || exit
-  done
-
-done < ${input_filename}
+done <"${input_filename}"
