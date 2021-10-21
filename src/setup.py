@@ -40,7 +40,7 @@ setup(
             "daomop-train-cnn = daomop.train_model:main",
             "daomop-build-plant-db = daomop.build_plant_list_db:main",
             "daomop-intelligentMasker = daomop.intelligentMasker:main",
-            "daomop-resolve-target = daomop.resolve_target",
+            "daomop-resolve-target = daomop.resolve_target:main",
         ],
     }
 )
