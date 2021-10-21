@@ -3,7 +3,7 @@
 # Some command defaults:
 output="calib"
 filter="HSC-R2"
-loglevel="INFO"
+loglevel="ERROR"
 
 # Handy function to repeatedly attempt to put data to VOSpace.
 function mcp() {
@@ -59,7 +59,7 @@ fi
 echo "Reading inputs from ${input_filename}"
 
 while read -r line; do
-    set "$line"
+    set ${line}
     if [ "$1" == "#" ]; then
         continue
     fi
@@ -70,6 +70,7 @@ while read -r line; do
     y=$1 && shift
     rate=$1 && shift
     angle=$1 && shift
+    mag=$1 && shift
     stack=$1 && shift
     ra=$1 && shift
     dec=$1 && shift
@@ -82,9 +83,16 @@ while read -r line; do
     fi
 
     section=500
-    chip=$(echo "${ccd}" | awk '{printf("%03d",$1)}')
-    pointing=$(echo "${pointing}" | awk '{printf("%05d",$1)}')
-    dbimages="vos:NewHorizons/dbimages/${pointing}/${chip}"
+    chip=$(printf %03d "${ccd}")
+    pointing=$(printf %05d "${pointing}")
+    index=$(printf %04d "${index}")
+
+    # Create locations to store the stamps... do this before we both making the stamps.
+    dbimages="vos:NewHorizons/dbimages/"
+    stack_dir="${pointing}/${chip}/${index}"
+    [ -d "${stack_dir}" ] || mkdir -p "${stack_dir}" || exit
+    vmkdir -p "${dbimages}/${stack_dir}" || exit
+    echo "Storing stacked stamps in ${stack_dir} and ${dbimages}/${stack_dir}"
 
     echo "Stacking ${section}X${section}  pixel box around ${ra} ${dec} at rate: ${rate} angle: ${angle}"
     daomop-sns "${basedir}" \
@@ -105,13 +113,12 @@ while read -r line; do
         --section-size "${section}" \
         --clip 8
 
-    echo "Copying stacks to ${dbimages}"
-    for stack in "${basedir}/rerun/${output}/${exptype}/${pointing}/${filter}/"*.fits; do
-        expnum=$(basename "${stack}" | awk -Fp '{printf("%s",$1)}')
-        ccd=$(basename "${stack}" | awk -Fp '{printf("%s",$2)}')
-        ccd=$(echo "${ccd%.fits}" | awk -Fp '{printf("ccd%02d", $1)}')
-        vmkdir -p "${dbimages}/${expnum}/${ccd}" || exit
-        mcp "${stack}" "${dbimages}/${expnum}/${ccd}/" || exit
+    lsst_dir="${basedir}/rerun/${output}/${exptype}/${pointing}/${filter}/"
+    # Move files out of LSST directory and into a stack directory in local FS and on VOS
+    for stack in "${lsst_dir}"*.fits; do
+        mv "${stack}" "${stack_dir}"
+        stack="${stack_dir}/"$(basename "${stack}")
+        mcp "${stack}" "${dbimages}/${stack_dir}" || exit
     done
 
 done <"${input_filename}"
