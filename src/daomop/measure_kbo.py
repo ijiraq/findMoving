@@ -414,7 +414,7 @@ def run():
     parser_args = subparsers.add_parser('args', help='a help')
     parser_args.add_argument('pointing', type=int)
     parser_args.add_argument('ccd', type=int)
-    parser_args.add_argument('index', help="index of the detection")
+    parser_args.add_argument('index', help="index of the detection", type=int)
     parser_args.add_argument('x', type=float)
     parser_args.add_argument('y', type=float)
     parser_args.add_argument('rate', type=float)
