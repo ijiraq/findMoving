@@ -150,9 +150,11 @@ def main():
 
     if 'pointing' not in detections.colnames:
         detections['pointing'] = int(args.pointing)
-
     for colname in RESOLVED_COLUMN_NAMES:
         detections[colname] = RESOLVED_COLUMN_FILL[colname]
+    detections['nstk'] = 3
+    for colname in OUTPUT_COLUMN_FMT:
+        detections[colname].info.format = OUTPUT_COLUMN_FMT[colname]
     idx = {}
     for row in detections:
         try:
@@ -174,10 +176,7 @@ def main():
             logging.error("{ex}")
             logging.error("{row}")
 
-    detections['nstk'] = 3
-    for colname in OUTPUT_COLUMN_FMT:
-        detections[colname].info.format = OUTPUT_COLUMN_FMT[colname]
-    detections[OUTPUT_COLUMNS].write(output_filename, format='ascii.fixed_width', delimiter=None, overwrite=True)
+        detections[OUTPUT_COLUMNS].write(output_filename, format='ascii.fixed_width', delimiter=None, overwrite=True)
     return 0
 
 
