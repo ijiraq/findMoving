@@ -91,7 +91,8 @@ def resolve(pointing, chip, rate, angle, x, y, vos_basedir):
         if min_offset is None or min_offset > dr:
             min_offset = dr
             min_idx = idx
-
+    if min_idx is None:
+        return None
     # Found the STACK in the VOSpace storage area that matches the pointing/chip/rate/angle of interest.
     # Now pull the 'cutout' with the WCS and compute the RA/DEC from the x/y location.
     stack_image = stacks[min_idx]
