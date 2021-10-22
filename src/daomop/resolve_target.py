@@ -155,20 +155,24 @@ def main():
         detections[colname] = RESOLVED_COLUMN_FILL[colname]
     idx = {}
     for row in detections:
-        if 'NEW' in row and row['NEW'] == 'n':
-            # this isn't a NEW source in this table.
-            continue
-        result = resolve(row['pointing'], row['chip'], row['rate'], row['angle'], row['x'], row['y'], vos_basedir=vospace_basedir)
-        if row['index'] < 1:
-            if row['chip'] not in idx:
-                idx[row['chip']] = 0
-            idx[row['chip']] += 1
-            row['index'] = idx[row['chip']]
+        try:
+            if 'NEW' in row and row['NEW'] == 'n':
+                # this isn't a NEW source in this table.
+                continue
+            result = resolve(row['pointing'], row['chip'], row['rate'], row['angle'], row['x'], row['y'], vos_basedir=vospace_basedir)
+            if row['index'] < 1:
+                if row['chip'] not in idx:
+                    idx[row['chip']] = 0
+                idx[row['chip']] += 1
+                row['index'] = idx[row['chip']]
 
-        if result is None:
-            continue
-        for colname in result:
-            row[colname] = result[colname]
+            if result is None:
+                continue
+            for colname in result:
+                row[colname] = result[colname]
+        except Exception as ex:
+            logging.error("{ex}")
+            logging.error("{row}")
 
     detections['nstk'] = 3
     for colname in OUTPUT_COLUMN_FMT:
