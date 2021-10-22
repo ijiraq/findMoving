@@ -9,10 +9,10 @@ from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
-
 from . import util
 from .util import get_image_list
 from .version import __version__
+import warnings
 
 numpy = np
 
@@ -148,13 +148,15 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
                 ccd_data[layer] = data
             logging.info(f'Adding {hdu[0].header["IMAGE"]} to projected stack.')
             # reference_header = referece_hdu[1].header
-            stack_input[image] = wcs_project(CCDData(ccd_data['image'],
-                                                     mask=ccd_data['mask'],
-                                                     header=wcs_header,
-                                                     wcs=WCS(wcs_header),
-                                                     unit='adu',
-                                                     uncertainty=ccd_data['variance']),
-                                             reference_wcs)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                stack_input[image] = wcs_project(CCDData(ccd_data['image'],
+                                                         mask=ccd_data['mask'],
+                                                         header=wcs_header,
+                                                         wcs=WCS(wcs_header),
+                                                         unit='adu',
+                                                         uncertainty=ccd_data['variance']),
+                                                 reference_wcs)
 
     if rate is not None:
         combiner = Combiner(stack_input.values())
@@ -390,11 +392,9 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             else:
                 stacked_data = stacking_mode(outs, axis=0)
                 del outs
-            print(numpy.isnan(stacked_data).sum())
             logging.info("combined finished.")
             logging.debug(f'Setting variance to mean variance / N frames')
             stacked_variance = STACKING_MODES['MEAN'](variances, axis=0)/num_frames
-            print(numpy.isnan(stacked_variance).sum())
             del variances
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
@@ -624,7 +624,6 @@ def main():
                     hduc.writeto(tt_file)
                     chdus[tt_file] = hduc
             hdus = chdus
-        print(hdus.keys())
         hdus2 = {}
         # Remove from the list HDULists where there is no data left (after cutout)
         for key in hdus:
