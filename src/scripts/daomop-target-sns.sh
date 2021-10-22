@@ -82,11 +82,11 @@ while read -r line; do
         input="diff"
     fi
 
-    section=500
+    section=200
     # put leading zeros in but remove them first, if they are already there.
-    chip=$(printf %03d "${ccd##0}")
-    pointing=$(printf %05d "${pointing##0}")
-    index=$(printf %04d "${index##0}")
+    chip=$(echo "${ccd}" | awk ' {printf("%03d", $1)}')
+    pointing=$(echo "${pointing}" | awk '{printf("%05d", $1)}')
+    index=$(echo "${index}" | awk '{printf("%04d", $1)}')
 
     # Create locations to store the stamps... do this before we both making the stamps.
     dbimages="vos:NewHorizons/dbimages/"
