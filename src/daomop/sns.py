@@ -160,10 +160,12 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
 
     if rate is not None:
         combiner = Combiner(stack_input.values())
-        if stacking_mode == 'MEDIAN':
-            stacked_image = combiner.median_combine()
-        else:
-            stacked_image = combiner.average_combine()
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', category=RuntimeWarning)
+            if stacking_mode == 'MEDIAN':
+                stacked_image = combiner.median_combine()
+            else:
+                stacked_image = combiner.average_combine()
         return fits.HDUList([fits.PrimaryHDU(header=reference_hdu[0].header),
                              fits.ImageHDU(data=stacked_image.data, header=reference_header)])
     else:
