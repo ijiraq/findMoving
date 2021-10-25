@@ -48,7 +48,7 @@ def get_image_list(dirname, exptype='CORR', visit=None, ccd=None, filters=[]):
     return _filelist
 
 
-def get_provisional_name(pointing, ccd, index, **kwargs):
+def get_provisional_name(pointing, chip, index, **kwargs):
     """
     Get a provisional name based on the pointing, ccd and index values
 
@@ -58,18 +58,18 @@ def get_provisional_name(pointing, ccd, index, **kwargs):
     e.g.  3091 67 1 => P97a3931
 
     :param pointing:  LSST pointing number
-    :param ccd: CCD on which source is detected
+    :param chip: CCD on which source is detected
     :param index: INDEX of detection on that CCD
     :param kwargs: Not used
     :return:
     """
-    logging.debug(f"{pointing} {ccd} {index} {kwargs}")
+    logging.debug(f"{pointing} {chip} {index} {kwargs}")
     try:
         index = int(index)
     except:
         index = 1
     try:
-        ccd = int(ccd)
+        ccd = int(chip)
     except:
         ccd = 0
     L = (string.digits + string.ascii_uppercase)[pointing//100-5]
