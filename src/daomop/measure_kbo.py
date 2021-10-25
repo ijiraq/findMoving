@@ -413,7 +413,7 @@ def run():
     parser_file.add_argument('detections', help='Name of file containing list of detections, must have columns'
                                                 'for pointing, chip, index, rate, angle, ra, dec')
     parser_file.set_defaults(func=main_list)
-    parser_file.add_argument('--chip', default=None, help='Only read this CCD/CHIP from the input file.')
+    parser_file.add_argument('--chip', type=int, default=None, help='Only read this CCD/CHIP from the input file.')
     parser_args = subparsers.add_parser('args', help='a help')
     parser_args.add_argument('pointing', type=int)
     parser_args.add_argument('chip', type=int)
