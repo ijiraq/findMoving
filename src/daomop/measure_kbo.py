@@ -371,8 +371,8 @@ def main_list(args):
     :return:
     """
     t = Table.read(args.detections, format='ascii')
-    if 'chip' in args and args['chip'] is not None:
-        t = t[t['chip']==args['chip']]
+    if args.chip is not None:
+        t = t[t['chip'] == args.chip]
     logging.debug(f"read table of len {len(t)} with columns {t.colnames}")
 
     targets = ["{:05d}{:03d}{:03d}".format(r['pointing'],
