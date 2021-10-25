@@ -68,9 +68,13 @@ def get_provisional_name(pointing, ccd, index, **kwargs):
         index = int(index)
     except:
         index = 1
+    try:
+        ccd = int(ccd)
+    except:
+        ccd = 0
     L = (string.digits + string.ascii_uppercase)[pointing//100-5]
-    value = int(f"{ccd:03d}{index:04d}")
-    return f"{L}{str(pointing)[-2:]:2s}{hex(value)[2:]:4s}"
+    value = (hex(int(f"{ccd:03d}{index:02d}"))[2:]).rjust(4, '0')  # 10301 --> 283d
+    return f"{L}{str(pointing)[-2:]:2s}{value:4s}"
 
 
 def from_provisional_name(p_name):
@@ -88,9 +92,9 @@ def from_provisional_name(p_name):
         index = int(f'0{p_name[3:]}', base=16)
         ccd = None
     else:
-        _value = str(int(f'0x{p_name[-5:]}', base=16))
-        ccd = _value[0:2]
-        index = _value[2:2+4]
+        _value = str(int(f'0x{p_name[-4:]}', base=16)).rjust(5, '0')
+        ccd = int(_value[0:3])
+        index = int(_value[3:])
 
     pointing = ((string.digits + string.ascii_uppercase).find(p_name[0])+5) * 100 + int(p_name[1:3])
 

@@ -228,7 +228,7 @@ def main(orbit=None, **kwargs):
     This is the driver program.  Gets the images from VOSpace or the local filesystem.
 
     expected kwargs:
-    pointing, index, ccd, rate, angle, ra, dec, p_name, discovery, nimg, zpt, dbimages
+    pointing, index, chip, rate, angle, ra, dec, p_name, discovery, nstk, zpt, dbimages
 
     :param kwargs: these are the 'args' sent on the commandline or in an input file.
     :param orbit: the orbit of the object that should be in the frames reference by kwargs provided.
@@ -238,7 +238,7 @@ def main(orbit=None, **kwargs):
     """
 
     pointing = kwargs['pointing']
-    ccd = kwargs['ccd']
+    chip = kwargs['chip']
     index = kwargs['index']
     rate = kwargs['rate']
     angle = kwargs['angle']
@@ -246,7 +246,7 @@ def main(orbit=None, **kwargs):
     dec = kwargs['dec']
     p_name = kwargs['p_name']
     discovery = kwargs['discovery']
-    nimg = kwargs['nimg']
+    nstk = kwargs['nstk']
     zpt = kwargs.get('zpt', 26.9)
     dbimages = kwargs.get('dbimages', 'vos:NewHorizons/dbimages/')
     client = Client()
@@ -254,11 +254,11 @@ def main(orbit=None, **kwargs):
     int_rate = int(rate * 10)
     int_angle = int((angle % 360) * 10)
     images = []
-    # Load the 3 images associated with this point/ccd/rate/angle set.
-    for idx in range(nimg):
+    # Load the 3 images associated with this point/chip/rate/angle set.
+    for idx in range(nstk):
         expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{idx}'
-        image = f'{expnum}p{ccd:02d}.fits'
-        url = f'{dbimages}/{pointing:05d}/{ccd:03d}/{index:04d}/{image}'
+        image = f'{expnum}p{chip:02d}.fits'
+        url = f'{dbimages}/{pointing:05d}/{chip:03d}/{index:04d}/{image}'
         logging.info(f"Looking for image at {url}")
         try:
             if os.access(url, os.R_OK):
@@ -357,7 +357,7 @@ def main_args(args):
     :return:
     """
     kwargs = vars(args)
-    # kwargs['p_name'] = "ML{:03d}{:02d}".format(kwargs['ccd'],kwargs['index'])
+    # kwargs['p_name'] = "ML{:03d}{:02d}".format(kwargs['chip'],kwargs['index'])
     kwargs['p_name'] = util.get_provisional_name(**kwargs)
     print(kwargs['p_name'])
     _main(**kwargs)
@@ -371,10 +371,12 @@ def main_list(args):
     :return:
     """
     t = Table.read(args.detections, format='ascii')
+    if 'chip' in args and args['chip'] is not None:
+        t = t[t['chip']==args['chip']]
     logging.debug(f"read table of len {len(t)} with columns {t.colnames}")
 
     targets = ["{:05d}{:03d}{:03d}".format(r['pointing'],
-                                           r['ccd'],
+                                           r['chip'],
                                            r['index']) for r in t]
     t['targets'] = targets
 
@@ -409,11 +411,12 @@ def run():
     subparsers = main_parser.add_subparsers(help='sub-command help')
     parser_file = subparsers.add_parser('file', help='a help')
     parser_file.add_argument('detections', help='Name of file containing list of detections, must have columns'
-                                                'for pointing, ccd, index, rate, angle, ra, dec')
+                                                'for pointing, chip, index, rate, angle, ra, dec')
     parser_file.set_defaults(func=main_list)
+    parser_file.add_argument('--chip', default=None, help='Only read this CCD/CHIP from the input file.')
     parser_args = subparsers.add_parser('args', help='a help')
     parser_args.add_argument('pointing', type=int)
-    parser_args.add_argument('ccd', type=int)
+    parser_args.add_argument('chip', type=int)
     parser_args.add_argument('index', help="index of the detection", type=int)
     parser_args.add_argument('x', type=float)
     parser_args.add_argument('y', type=float)
@@ -423,7 +426,7 @@ def run():
     parser_args.add_argument('stack', type=str)
     parser_args.add_argument('ra', type=float, help="RA of initial object location (deg)")
     parser_args.add_argument('dec', type=float, help="DEC of initial object location (deg)")
-    parser_args.add_argument('nimg', type=int, help="Number of images in stack set")
+    parser_args.add_argument('nstk', type=int, help="Number of images in stack set")
     parser_args.set_defaults(func=main_args)
     main_parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
     main_parser.add_argument('--skip', action="store_true")
