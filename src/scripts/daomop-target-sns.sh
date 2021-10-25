@@ -16,7 +16,7 @@ function mcp() {
 
 
 if [ $# -lt 3 ]; then
-    echo "Usage: ${0} base_dir exptype pointing ccd index x y rate angle mag stack ra dec num"
+    echo "Usage: ${0} base_dir exptype pointing chip index x y rate angle mag stack ra dec num"
     echo ""
     echo "${0} takes the inputs of where a source was found and creates a new set of stacks using a subset,"
     echo " aka cutout, of the pixel data centred around the RA/DEC provided at the rate/angle requested."
@@ -33,8 +33,8 @@ if [ $# -lt 3 ]; then
     echo "       base_dir: directory that contains the LSST Pipeline rerun directory with the images to stack."
     echo "       exptype : type of LSST Pipeline images to stack (normally DIFFEXP, sometimes CORR or MASKED)."
     echo "       pointing: the LSST Pipeline pointing number for this data (e.g. 03148)"
-    echo "       ccd     : the CCD to stack up"
-    echo "       index   : index number of source on that ccd (used to create provisional name during measure step)"
+    echo "       chip     : the CCD to stack up"
+    echo "       index   : index number of source on that chip (used to create provisional name during measure step)"
     echo "       x       : The x-pixel location of the source in the searched stack set (ignored)"
     echo "       y       : The y-pixel location of the source in the searched stack set (ignored)"
     echo "       rate    : rate of motion to stack at (-ve implies target moving west)"
@@ -64,7 +64,7 @@ while read -r line; do
         continue
     fi
     pointing=$1 && shift
-    ccd=$1 && shift
+    chip=$1 && shift
     index=$1 && shift
     x=$1 && shift
     y=$1 && shift
@@ -75,7 +75,7 @@ while read -r line; do
     ra=$1 && shift
     dec=$1 && shift
     num=$1 && shift
-    echo "${pointing}.${ccd}.${index}.${x}.${y}.${rate}.${angle}.${stack}.${ra}.${dec}.${num}"
+    echo "${pointing}.${chip}.${index}.${x}.${y}.${rate}.${angle}.${stack}.${ra}.${dec}.${num}"
     if [ "${exptype}" == "CORR" ]; then
         input="processCcdOutputs"
     else
@@ -84,7 +84,7 @@ while read -r line; do
 
     section=200
     # put leading zeros in but remove them first, if they are already there.
-    chip=$(echo "${ccd}" | awk ' {printf("%03d", $1)}')
+    chip=$(echo "${chip}" | awk ' {printf("%03d", $1)}')
     pointing=$(echo "${pointing}" | awk '{printf("%05d", $1)}')
     index=$(echo "${index}" | awk '{printf("%04d", $1)}')
 
@@ -101,7 +101,7 @@ while read -r line; do
         --pointing "${pointing}" \
         --rerun "${input}":"${output}" \
         --filter "${filter}" \
-        --ccd "${ccd}" \
+        --chip "${chip}" \
         --log-level "${loglevel}" \
         --exptype "${exptype}" \
         --group \
