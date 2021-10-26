@@ -7,7 +7,7 @@ from astropy.table import Table
 from astropy.time import Time
 from mp_ephem import BKOrbit
 import logging
-from . import util
+from daomop import util
 
 
 def run():
@@ -16,8 +16,8 @@ def run():
     :return:
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('mpc-filename', type=str, help="MPC formatted ephemeris file, will be passed to BKOrbit")
-    parser.add_argument('track-filename', type=str, help="Nane of file to store lines that indicate where the source might be found.")
+    parser.add_argument('mpc_filename', type=str, help="MPC formatted ephemeris file, will be passed to BKOrbit")
+    parser.add_argument('track_filename', type=str, help="Nane of file to store lines that indicate where the source might be found.")
     parser.add_argument('--pointing-catalog-filename', type=str, default='skycat.csv',
                         help="File containing the bounding boxes for each chip of each pointing.")
     parser.add_argument('--log-level', default='ERROR', choices=['INFO', 'DEBUG', 'ERROR'])
@@ -27,7 +27,7 @@ def run():
 
 
 # noinspection PyBroadException
-def main(mpc_filename, track_filename, pointing_catalog_filename):
+def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
     """
 
     :param mpc_filename: Name of file containing MPC formated astrometric measurements.
