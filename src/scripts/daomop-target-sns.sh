@@ -4,6 +4,7 @@
 output="calib"
 filter="HSC-R2"
 loglevel="ERROR"
+dbimages="vos:NewHorizons/dbimages/"
 
 # Handy function to repeatedly attempt to put data to VOSpace.
 function mcp() {
@@ -64,7 +65,7 @@ while read -r line; do
         continue
     fi
     pointing=$1 && shift
-    chip=$1 && shift
+    ccd=$1 && shift
     index=$1 && shift
     x=$1 && shift
     y=$1 && shift
@@ -75,7 +76,7 @@ while read -r line; do
     ra=$1 && shift
     dec=$1 && shift
     num=$1 && shift
-    echo "${pointing}.${chip}.${index}.${x}.${y}.${rate}.${angle}.${stack}.${ra}.${dec}.${num}"
+    echo "${pointing}.${ccd}.${index}.${x}.${y}.${rate}.${angle}.${stack}.${ra}.${dec}.${num}"
     if [ "${exptype}" == "CORR" ]; then
         input="processCcdOutputs"
     else
@@ -84,12 +85,11 @@ while read -r line; do
 
     section=200
     # put leading zeros in but remove them first, if they are already there.
-    chip=$(echo "${chip}" | awk ' {printf("%03d", $1)}')
+    chip=$(echo "${ccd}" | awk ' {printf("%03d", $1)}')
     pointing=$(echo "${pointing}" | awk '{printf("%05d", $1)}')
     index=$(echo "${index}" | awk '{printf("%04d", $1)}')
 
     # Create locations to store the stamps... do this before we both making the stamps.
-    dbimages="vos:NewHorizons/dbimages/"
     stack_dir="${pointing}/${chip}/${index}"
     [ -d "${stack_dir}" ] || mkdir -p "${stack_dir}" || exit
     vmkdir -p "${dbimages}/${stack_dir}" || exit
@@ -101,7 +101,7 @@ while read -r line; do
         --pointing "${pointing}" \
         --rerun "${input}":"${output}" \
         --filter "${filter}" \
-        --chip "${chip}" \
+        --ccd "${ccd}" \
         --log-level "${loglevel}" \
         --exptype "${exptype}" \
         --group \

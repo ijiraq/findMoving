@@ -397,7 +397,10 @@ def main_list(args):
         logging.debug(f"{row}")
         kwarg = dict([(name, row[name]) for name in row.colnames])
         kwarg['p_name'] = p_name
+        # add in the arguments that are set on the CL when reading from file.
         kwarg['skip'] = args.skip
+        kwarg['dbimages'] = args.dbimages
+        kwarg['zpt'] = args.zpt
         logging.debug(kwarg)
         _main(**kwarg)
 
