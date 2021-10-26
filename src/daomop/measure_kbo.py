@@ -349,30 +349,28 @@ def get_valid_obs_count(observations):
     return nobs
 
 
-def main_args(args):
+def main_args(**kwargs):
     """
     given a arguement set from ArgumentParser call the _main program with the correct arguments.
 
     :param args:
     :return:
     """
-    kwargs = vars(args)
     # kwargs['p_name'] = "ML{:03d}{:02d}".format(kwargs['chip'],kwargs['index'])
     kwargs['p_name'] = util.get_provisional_name(**kwargs)
-    print(kwargs['p_name'])
     _main(**kwargs)
 
 
-def main_list(args):
+def main_list(**kwargs):
     """
     Given a filename with a set of arguments call _main for ecah row in the input file.
 
-    :param args:
+    :param kwargs:  set of keyword / value arguments.
     :return:
     """
-    t = Table.read(args.detections, format='ascii')
-    if args.chip is not None:
-        t = t[t['chip'] == args.chip]
+    t = Table.read(kwargs['detections'], format='ascii')
+    if kwargs['chip'] is not None:
+        t = t[t['chip'] == kwargs['chip']]
     logging.debug(f"read table of len {len(t)} with columns {t.colnames}")
 
     targets = ["{:05d}{:03d}{:03d}".format(r['pointing'],
@@ -380,8 +378,8 @@ def main_list(args):
                                            r['index']) for r in t]
     t['targets'] = targets
 
-    if args.provisional_name:
-        t['provisional_name'] = os.path.splitext(os.path.basename(args.detections))[0]
+    if kwargs['provisional_name']:
+        t['provisional_name'] = os.path.splitext(os.path.basename(kwargs['detections']))[0]
         logging.info(f"Using provisional name {t['provisional_name'][0]}")
 
     for row in t:
@@ -395,14 +393,12 @@ def main_list(args):
             p_name = row['provisional_name']
 
         logging.debug(f"{row}")
-        kwarg = dict([(name, row[name]) for name in row.colnames])
-        kwarg['p_name'] = p_name
+        for name in row.colnames:
+            kwargs[name] = row[name]
+        kwargs['p_name'] = p_name
         # add in the arguments that are set on the CL when reading from file.
-        kwarg['skip'] = args.skip
-        kwarg['dbimages'] = args.dbimages
-        kwarg['zpt'] = args.zpt
-        logging.debug(kwarg)
-        _main(**kwarg)
+        logging.debug(kwargs)
+        _main(**kwargs)
 
 
 def run():
@@ -442,7 +438,7 @@ def run():
     logging.basicConfig(level=getattr(logging, args.log_level))
     logging.info(f"Using vos:{version.version}")
     start_ds9()
-    args.func(args)
+    args.func(vars(args))
 
 
 if __name__ == '__main__':
