@@ -438,7 +438,7 @@ def run():
     logging.basicConfig(level=getattr(logging, args.log_level))
     logging.info(f"Using vos:{version.version}")
     start_ds9()
-    args.func(vars(args))
+    args.func(**vars(args))
 
 
 if __name__ == '__main__':
