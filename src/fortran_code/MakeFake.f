@@ -1,5 +1,18 @@
 c-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
 
+      real function MA(M, epoch_M, a, jday)
+
+      real*8 M
+      real*8 jday
+      real*8 nu, TwoPi, epoch_M, a
+      parameter (TwoPi=3.141592653589793238d0*2d0, nu=TwoPi/365.25d0)
+
+C     Source is on the primary image and detectable by the primary.
+      MA = M + (jday-epoch_M)*((nu/a**1.5))
+      MA = MA - int(MA/TwoPi)*TwoPi
+      return 
+      end function MA
+
       include 'SurveySubs.f'
 
       program XX
@@ -11,7 +24,8 @@ c-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
       integer*4 field_number, i, j, version
 
       real*8 Pi, TwoPi, drad, mu, theta, phi
-      real*8 gb, alpha, mag_limit, H_limit, MA
+      real*8 gb, alpha, mag_limit, H_limit
+      real MA
 
       parameter (Pi = 3.141592653589793238d0, TwoPi = 2.0d0*Pi,
      $     drad = Pi/180.0d0, mu = TwoPi**2)
@@ -20,6 +34,7 @@ c-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
       real*8 obs_jday, fake_jday
       real*8 a, e, inc, node, peri, M, H, pos(6), obs_pos(3)
       real*8 epoch_M
+      real*8 vtmp(3)
       real*8 tmp, ros, fake_obs_pos(3), fake_ros
       real*8 ra, dec, delta, radius, mag, ddec, dra
       real*8 fake_ra, fake_dec, fake_delta, fake_mag, fake_M
@@ -87,15 +102,15 @@ C     empty of sources.
 
 C     Get observatory location for primary/master location
       call ObsPos (obs_code, obs_jday, obs_pos, 
-     $     tmp, ros, ierr)
+     $     vtmp, ros, ierr)
 
 C     Get the observer location at this fake date.
       call ObsPos (obs_code, fake_jday, fake_obs_pos,
-     $     tmp, fake_ros, ierr)
+     $     vtmp, fake_ros, ierr)
 
 C     Get the observer location at fake date + 1 day (for rates)
       call ObsPos (obs_code, fake_jday+1, fake_obs_pos2,
-     $     tmp, fake_ros2, ierr)
+     $     vtmp, fake_ros2, ierr)
 
 
 C     Loop over making fake objects until we have max_objects in frame
@@ -178,20 +193,6 @@ C     Compute position 1 day later to get sky motion rate
 
       end program xx
 
-
-      real function MA(M, epoch_M, a, jday)
-
-      real*8 M
-      real*8 jday
-      real*8 MA
-      real*8 nu, TwoPi, epoch_M, a
-      parameter (TwoPi=3.141592653589793238d0*2d0, nu=TwoPi/365.25d0)
-
-C     Source is on the primary image and detectable by the primary.
-      MA = M + (jday-epoch_M)*((nu/a**1.5))
-      MA = MA - int(MA/TwoPi)*TwoPi
-      return 
-      end function MA
       
 
 
