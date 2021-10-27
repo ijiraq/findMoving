@@ -544,7 +544,7 @@ def main():
             reference_image = images[reference_idx]
             reference_hdu = fits.open(images[reference_idx])
             reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
-            reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
+            # reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         else:
             # group images by time
             start_idx = len(images)//args.n_sub_stacks*index
@@ -562,6 +562,7 @@ def main():
         if args.group:
             reference_idx = int(len(sub_images) // 2)
             reference_hdu = fits.open(sub_images[reference_idx])
+        reference_filename = os.path.splitext(reference_hdu[0].header['IMAGE'])[0][0:]
 
         if not args.swarp and args.rectify:
             # Need to project all images to same WCS before passing to stack.
@@ -694,6 +695,7 @@ def main():
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             output[0].header['CCDNUM'] = (args.ccd, 'CCD NUMBER or DETSER')
             output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
+            output[0].header['REFEXP'] = (reference_filename, 'reference exposure')
             output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0]).mjd, " MID Exposure")
             output[0].header['ASTLEVEL'] = 1
             for i_index, image_name in enumerate(sub_images):
