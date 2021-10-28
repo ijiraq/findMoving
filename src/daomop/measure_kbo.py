@@ -66,7 +66,7 @@ def get_ds9(name):
 
 
 def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
-                target=DS9_NAME, regions=None):
+                target=DS9_NAME, regions=None, rejected=False):
     """
     Load a list of images into a ds9 session.
 
@@ -106,10 +106,11 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
                 ra1 = ra - dra*(obsdate-basedate).to('hour').value/3600.
                 dec1 = dec - ddec*(obsdate-basedate).to('hour').value/3600.0
                 uncertainty_ellipse = 3, 3, 0
+            colour = 'green' and not rejected or 'red'
             ds9.set('regions', f'icrs; ellipse({ra1},{dec1},'
                                f'{uncertainty_ellipse[0]}",'
                                f'{uncertainty_ellipse[1]}",'
-                               f'{uncertainty_ellipse[2]})')
+                               f'{uncertainty_ellipse[2]}) # color={colour}')
             ds9.set(f'pan to {ra1} {dec1} wcs icrs')
             logging.debug(f'Loading regions from {regions}')
             if regions is not None:
@@ -218,7 +219,8 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
             logging.warning(f"Got: {ra},{dec}")
 
         record_key = obsdate
-        obs[record_key] = Observation(null_observation=key == 'r', provisional_name=p_name,
+        null_obs = key in ['r', 'b']
+        obs[record_key] = Observation(null_observation=null_obs, provisional_name=p_name,
                                       comment="{} {} {}".format(*util.from_provisional_name(p_name)), note1=note1, note2='C',
                                       date=obsdate, ra=ra, dec=dec, mag=obs_mag, mag_err=obs_mag_err, observatory_code='568',
                                       discovery=discovery, xpos=x, ypos=y, frame=os.path.splitext(os.path.basename(image))[0])
@@ -287,7 +289,7 @@ def main(orbit=None, **kwargs):
     load_images(images, ra, dec, wcs_dict, orbit,
                 dra=rate*math.cos(math.radians(angle)),
                 ddec=rate*math.sin(math.radians(angle)),
-                regions=regions)
+                regions=regions, rejected=rejected)
 
     obs = measure_image(p_name, images, wcs_dict, discovery=discovery, zpt=zpt)
     return obs
@@ -316,12 +318,18 @@ def _main(**kwargs):
             return
         logging.warning(f"{ast_filename} exists, appending new measures.")
         for ob in list(EphemerisReader().read(ast_filename)):
-            record_index = ob.date.mpc[0:13]
+            try:
+                record_index = ob.comment.frame
+            except:
+                logging.error("Failed to get file/frame info for {ob}")
+                record_index = ob.date.mpc[0:13]
             obs[record_index] = ob
         try:
             kwargs['orbit'] = BKOrbit(None, ast_filename=ast_filename)
+            kwargs['rejected'] = False
             kwargs['discovery'] = False
         except Exception as er:
+            kwargs['rejected'] = True
             logging.warning(f"{ast_filename} -> {er}")
 
     new_obs = main(**kwargs)
