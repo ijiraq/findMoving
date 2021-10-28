@@ -111,8 +111,9 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
                                f'{uncertainty_ellipse[1]}",'
                                f'{uncertainty_ellipse[2]})')
             ds9.set(f'pan to {ra1} {dec1} wcs icrs')
+            logging.debug(f'Loading regions from {regions}')
             if regions is not None:
-                ds9.set('regions', regions)
+                ds9.set(f'regions {regions}')
     ds9.set('frame match wcs')
     ds9.set('frame first')
 
