@@ -92,7 +92,7 @@ def link(target, candidates):
             nlinks += 1
             with open(f"{os.path.splitext(target)[0]}_{os.path.splitext(filename)[0]}.mpc", 'w') as fobj:
                 for obs in ll.observations:
-                    fobj.write(obs.to_string())
+                    fobj.write(obs.to_string()+'\n')
 
     return nlinks
 
