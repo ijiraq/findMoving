@@ -106,7 +106,7 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
                 ra1 = ra - dra*(obsdate-basedate).to('hour').value/3600.
                 dec1 = dec - ddec*(obsdate-basedate).to('hour').value/3600.0
                 uncertainty_ellipse = 3, 3, 0
-            colour = 'green' and not rejected or 'red'
+            colour = rejected and 'red' or 'green'
             ds9.set('regions', f'icrs; ellipse({ra1},{dec1},'
                                f'{uncertainty_ellipse[0]}",'
                                f'{uncertainty_ellipse[1]}",'
@@ -252,6 +252,7 @@ def main(orbit=None, **kwargs):
     p_name = kwargs['p_name']
     discovery = kwargs['discovery']
     nstk = kwargs['nstk']
+    rejected = kwargs.get('rejected', False)
     zpt = kwargs.get('zpt', 26.9)
     dbimages = kwargs.get('dbimages', 'vos:NewHorizons/dbimages/')
     client = Client()
