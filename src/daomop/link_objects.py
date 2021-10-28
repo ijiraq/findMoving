@@ -49,6 +49,9 @@ def link(target, candidates):
         return -1
 
     for filename in candidates:
+        if filename == target:
+            logging.info("No self-linking")
+            continue
         logging.debug(f"Attempting to link {filename}")
         new_obs = []
         linkable_candidate = True
