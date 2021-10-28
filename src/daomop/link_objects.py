@@ -69,9 +69,9 @@ def link(target, candidates):
             orbit.compute_residuals()
         except Exception as ex:
             logging.error(f"Linking attempting link with {filename} -> {ex}")
+            for obs in trial_obs:
+                logging.error(f"{obs}")
             continue
-
-        ll = orbit
 
         # Check all the positions for goodness of fit
         for obs in orbit.observations:
@@ -88,10 +88,10 @@ def link(target, candidates):
 
         if linkable_candidate:
             print(f"{target} + {filename}")
-            print(ll.summarize())
+            print(orbit.summarize())
             nlinks += 1
             with open(f"{os.path.splitext(target)[0]}_{os.path.splitext(filename)[0]}.mpc", 'w') as fobj:
-                for obs in ll.observations:
+                for obs in orbit.observations:
                     fobj.write(obs.to_string()+'\n')
 
     return nlinks
