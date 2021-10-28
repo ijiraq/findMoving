@@ -41,6 +41,7 @@ setup(
             "daomop-build-plant-db = daomop.build_plant_list_db:main",
             "daomop-intelligentMasker = daomop.intelligentMasker:main",
             "daomop-resolve-target = daomop.resolve_target:main",
+            "daomop-link = daomop.link_objects:main",
         ],
     }
 )
