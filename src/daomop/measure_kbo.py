@@ -66,7 +66,7 @@ def get_ds9(name):
 
 
 def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
-                target=DS9_NAME):
+                target=DS9_NAME, regions=None):
     """
     Load a list of images into a ds9 session.
 
@@ -111,6 +111,8 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
                                f'{uncertainty_ellipse[1]}",'
                                f'{uncertainty_ellipse[2]})')
             ds9.set(f'pan to {ra1} {dec1} wcs icrs')
+            if regions is not None:
+                ds9.set('regions', regions)
     ds9.set('frame match wcs')
     ds9.set('frame first')
 
@@ -263,6 +265,7 @@ def main(orbit=None, **kwargs):
         try:
             if os.access(url, os.R_OK):
                 image = url
+
             elif not os.access(image, os.R_OK):
                 # get from VOSpace is not already on disk
                 client.copy(url, image)
@@ -272,10 +275,18 @@ def main(orbit=None, **kwargs):
             return {}
         images.append(image)
 
+    regions = f'{dbimages}/{pointing:05d}.reg'
+    try:
+        if not os.access(regions, os.R_OK):
+            regions = client.copy(regions, '.', disposition=True)
+    except:
+        regions = None
+
     wcs_dict = {}
     load_images(images, ra, dec, wcs_dict, orbit,
                 dra=rate*math.cos(math.radians(angle)),
-                ddec=rate*math.sin(math.radians(angle)))
+                ddec=rate*math.sin(math.radians(angle)),
+                regions=regions)
 
     obs = measure_image(p_name, images, wcs_dict, discovery=discovery, zpt=zpt)
     return obs
