@@ -66,7 +66,7 @@ def get_ds9(name):
 
 
 def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
-                target=DS9_NAME, regions=None, rejected=False):
+                target=DS9_NAME, regions=None, rejected=False, basedate=None):
     """
     Load a list of images into a ds9 session.
 
@@ -80,12 +80,14 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
     :param dra: draw an error ellipse at ra/dec using dra/ddec sizes if no orbit given.
     :param ddec: draw an error ellipse at ra/dec using dra/ddec sizes if no orbit given.
     :param target: name of the ds9 session to put images into (aka 'validate')
+    :param regions: name of file that holds a list of regions that should be maked on the display.
+    :param rejected: Is this a rejected / null observation.
+    :param basedate: date that the ra/dec is valid for (aka epoch of coordinate)
     :return:
     """
     ds9 = get_ds9(target)
     ds9.set('frame delete all')
     ds9.set('zscale')
-    basedate = None
     for image in images:
         ds9.set('frame new')
         ds9.set(f"file {image}")
@@ -173,7 +175,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
         note1 = allowed_keys[key][0]
         frame_no = int(ds9.get('frame')) - 1
         image = images[frame_no]
-        ds9.set('regions', f'image; circle {x} {y} 20')
+        ds9.set('regions', f'image; circle {x} {y} 5')
         centroid = not note1 == 'H'
         phot = daophot.phot_mag(image,
                                 [x, ], [y, ],
@@ -205,6 +207,9 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
             cen_y = phot['YCENTER'][0]
             obs_mag = phot['MAG'][0]
             obs_mag_err = phot['MERR'][0]
+
+        colour = "{blue}"
+        ds9.set('regions', f'image; circle {x} {y} 4 # color={colour}')
 
         obsdate = Time(Time(fits.open(image)[0].header['DATE-AVG'], scale='tai').mjd,
                        format='mjd',
@@ -255,6 +260,7 @@ def main(orbit=None, **kwargs):
     rejected = kwargs.get('rejected', False)
     zpt = kwargs.get('zpt', 26.9)
     dbimages = kwargs.get('dbimages', 'vos:NewHorizons/dbimages/')
+
     client = Client()
 
     int_rate = int(rate * 10)
@@ -287,10 +293,12 @@ def main(orbit=None, **kwargs):
         regions = None
 
     wcs_dict = {}
+    epoch = Time(kwargs.get('epoch', orbit.epoch.mjd), format='mjd')
+
     load_images(images, ra, dec, wcs_dict, orbit,
                 dra=rate*math.cos(math.radians(angle)),
                 ddec=rate*math.sin(math.radians(angle)),
-                regions=regions, rejected=rejected)
+                regions=regions, rejected=rejected, basedate=epoch)
 
     obs = measure_image(p_name, images, wcs_dict, discovery=discovery, zpt=zpt)
     return obs

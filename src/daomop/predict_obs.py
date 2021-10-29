@@ -52,8 +52,9 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                 "stack",
                 "ra",
                 "dec",
-                "nimg",
-                'provisional_name']
+                "nstk",
+                'provisional_name',
+                'epoch']
     track_rows = []
 
     orbit = BKOrbit(None, ast_filename=mpc_filename)
@@ -74,7 +75,7 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
         coord2 = orbit.coordinate
         ra_rate = (coord2.ra - coord1.ra).to('arcsec')
         dec_rate = (coord2.dec - coord1.dec).to('arcsec')
-        angle = numpy.degrees(numpy.arctan2(dec_rate, numpy.fabs(ra_rate))).value
+        angle = -1*numpy.degrees(numpy.arctan2(dec_rate, numpy.fabs(ra_rate))).value
         rate = (ra_rate**2 + dec_rate**2)**0.5
         track_rows.append([row['pointing'],
                            row['ccd'],
@@ -88,7 +89,8 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                            orbit.ra.degree,
                            orbit.dec.degree,
                            3,
-                           name])
+                           name,
+                           row['mjdobs']])
     track_rows = numpy.array(track_rows)
     Table(track_rows, names=colnames).write(track_filename, format='ascii.fixed_width', delimiter=None)
 
