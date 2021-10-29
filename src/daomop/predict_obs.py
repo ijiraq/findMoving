@@ -53,7 +53,7 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                 "ra",
                 "dec",
                 "nimg",
-                'provision_name']
+                'provisional_name']
     track_rows = []
 
     orbit = BKOrbit(None, ast_filename=mpc_filename)
