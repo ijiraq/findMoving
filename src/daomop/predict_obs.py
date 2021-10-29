@@ -52,7 +52,8 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                 "stack",
                 "ra",
                 "dec",
-                "nimg"]
+                "nimg",
+                'provision_name']
     track_rows = []
 
     orbit = BKOrbit(None, ast_filename=mpc_filename)
@@ -86,7 +87,8 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                            "UNKNOWN",
                            orbit.ra.degree,
                            orbit.dec.degree,
-                           3])
+                           3,
+                           name])
     track_rows = numpy.array(track_rows)
     Table(track_rows, names=colnames).write(track_filename, format='ascii.fixed_width', delimiter=None)
 
