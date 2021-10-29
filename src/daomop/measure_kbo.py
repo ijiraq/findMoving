@@ -218,7 +218,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
             logging.warning(ex)
             logging.warning(f"Got: {ra},{dec}")
 
-        record_key = obsdate
+        record_key = obsdate[0:14]
         null_obs = key in ['r', 'b']
         obs[record_key] = Observation(null_observation=null_obs, provisional_name=p_name,
                                       comment="{} {} {}".format(*util.from_provisional_name(p_name)), note1=note1, note2='C',
@@ -319,11 +319,7 @@ def _main(**kwargs):
             return
         logging.warning(f"{ast_filename} exists, appending new measures.")
         for ob in list(EphemerisReader().read(ast_filename)):
-            try:
-                record_index = ob.comment.frame
-            except:
-                logging.error("Failed to get file/frame info for {ob}")
-                record_index = ob.date.mpc[0:13]
+            record_index = ob.date.mpc[0:14]
             obs[record_index] = ob
         try:
             kwargs['orbit'] = BKOrbit(None, ast_filename=ast_filename)
