@@ -63,7 +63,6 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
     name = orbit.observations[0].provisional_name
     index = 0
     for row in skycat:
-        index += 1
         orbit.predict(Time(row['mjdobs'], format='mjd'))
         coord1 = orbit.coordinate
         dra = orbit.dra.to('degree').value
@@ -71,6 +70,7 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
         if not (row['ramin'] < coord1.ra.degree < row['ramax'] and
                 row['decmin'] < coord1.dec.degree < row['decmax']):
             continue
+        index += 1
         orbit.predict(Time(row['mjdobs']+1/24.0, format='mjd'))
         coord2 = orbit.coordinate
         ra_rate = (coord2.ra - coord1.ra).to('arcsec')
