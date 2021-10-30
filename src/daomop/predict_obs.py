@@ -59,17 +59,15 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
 
     orbit = BKOrbit(None, ast_filename=mpc_filename)
     name = orbit.observations[0].provisional_name
-    try:
-        # use the logic of the provisional name to get the index
-        pointing, ccd, index = util.from_provisional_name(name)
-    except Exception as ex:
-        logging.error(f"{ex} on {name}")
-        index = 1
+    index = 0
     for row in skycat:
+        index += 1
         orbit.predict(Time(row['mjdobs'], format='mjd'))
         coord1 = orbit.coordinate
-        if not (row['ramin'] < coord1.ra.degree < row['ramax'] and
-                row['decmin'] < coord1.dec.degree < row['decmax']):
+        dra = orbit.dra.to('degree').value
+        ddec = orbit.ddec.to('degree').value
+        if not (row['ramin'] + dra < coord1.ra.degree < row['ramax'] - dra and
+                row['decmin'] + ddec < coord1.dec.degree < row['decmax']) - ddec:
             continue
         orbit.predict(Time(row['mjdobs']+1/24.0, format='mjd'))
         coord2 = orbit.coordinate
