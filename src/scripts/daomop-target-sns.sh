@@ -72,22 +72,24 @@ while read -r line; do
   chip=$(echo "${ccd}" | awk ' {printf("%03d", $1)}')
   index=$(echo "${index}" | awk '{printf("%04d", $1)}')
 
-  echo "${pointing}.${chip}.${index}.${x}.${y}.${rate}.${angle}.${stack}.${ra}.${dec}.${num}"
+  echo "${basedir} ${exptype} ${pointing} ${chip} ${index} ${x} ${y} ${rate} ${angle} ${stack} ${ra} ${dec} ${num}"
 
   # check for MASKED or DIFFEXP in basedir/rerun/*/pointing and select input dir and exptype that is best suited.
   if [ "${exptypes}" == "UNKNOWN" ] ; then
     exptypes="MASKED DIFFEXP CORR"
   fi
   for exptype in ${exptypes}; do
+    echo "Looking for ${exptype} files in ${basedir}/rerun with sub-directory ${pointing}"
     input=$(find "${basedir}/rerun" -path "*${pointing}*" -name "${exptype}-*-${chip}.f*" -print | head -n 1)
+    echo "Found -->${input}<--"
     [ "${input}" ] || continue
     input="${input##*rerun/}"
     input="${input%%/*}"
     break
   done
   if [ "${input}" ]; then
-    echo "FAILED TO GUESS INPUT RERUN"
-    exit 1 ;
+    echo "FAILED TO GUESS INPUT RERUN going to next row"
+    continue
   fi
 
   echo "Using ${exptype} for ${pointing} in rerun directory ${input}"
