@@ -39,7 +39,7 @@ if [ $# -lt 3 ]; then
 fi
 
 basedir=$1 && shift
-exptype=$1 && shift
+exptypes=$1 && shift
 input_filename=$1
 if [ ! -f "${input_filename}" ]; then
   input_filename=$(mktemp "${TMPDIR:=/tmp}/XXXXXX_tract.txt")
@@ -66,20 +66,34 @@ while read -r line; do
   ra=$1 && shift
   dec=$1 && shift
   num=$1 && shift
-  echo "${pointing}.${ccd}.${index}.${x}.${y}.${rate}.${angle}.${stack}.${ra}.${dec}.${num}"
 
-  if [ "${exptype}" == "CORR" ]; then
-    input="processCcdOutputs"
-  else
-    input="diff"
-  fi
-  echo "Expecting ${exptype} files to be in subdirectory of ${basedir}/rerun/${input} "
-
-  section=200
   # put leading zeros in but remove them first, if they are already there.
   pointing=$(echo "${pointing}" | awk '{printf("%05d", $1)}')
   chip=$(echo "${ccd}" | awk ' {printf("%03d", $1)}')
   index=$(echo "${index}" | awk '{printf("%04d", $1)}')
+
+  echo "${pointing}.${chip}.${index}.${x}.${y}.${rate}.${angle}.${stack}.${ra}.${dec}.${num}"
+
+  # check for MASKED or DIFFEXP in basedir/rerun/*/pointing and select input dir and exptype that is best suited.
+  if [ "${exptypes}" == "UNKNOWN" ] ; then
+    exptypes="MASKED DIFFEXP CORR"
+  fi
+  for exptype in ${exptypes}; do
+    input=$(find "${basedir}/rerun" -path "*${pointing}*" -name "${exptype}-*-${chip}.f*" -print | head -n 1)
+    [ "${input}" ] || continue
+    input="${input##*rerun/}"
+    input="${input%%/*}"
+    break
+  done
+  if [ "${input}" ]; then
+    echo "FAILED TO GUESS INPUT RERUN"
+    exit 1 ;
+  fi
+
+  echo "Using ${exptype} for ${pointing} in rerun directory ${input}"
+
+
+  section=200
 
   # Create locations to store the stamps... do this before we both making the stamps.
   stack_dir="${pointing}/${chip}/${index}"
