@@ -54,7 +54,9 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                 "dec",
                 "nstk",
                 'provisional_name',
-                'epoch']
+                'epoch',
+                'dra',
+                'ddec']
     track_rows = []
 
     orbit = BKOrbit(None, ast_filename=mpc_filename)
@@ -66,8 +68,8 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
         coord1 = orbit.coordinate
         dra = orbit.dra.to('degree').value
         ddec = orbit.ddec.to('degree').value
-        if not (row['ramin'] + dra < coord1.ra.degree < row['ramax'] - dra and
-                row['decmin'] + ddec < coord1.dec.degree < row['decmax']) - ddec:
+        if not (row['ramin'] < coord1.ra.degree < row['ramax'] and
+                row['decmin'] < coord1.dec.degree < row['decmax']):
             continue
         orbit.predict(Time(row['mjdobs']+1/24.0, format='mjd'))
         coord2 = orbit.coordinate
@@ -88,7 +90,9 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                            orbit.dec.degree,
                            3,
                            name,
-                           row['mjdobs']])
+                           row['mjdobs'],
+                           dra,
+                           ddec])
     track_rows = numpy.array(track_rows)
     Table(track_rows, names=colnames).write(track_filename, format='ascii.fixed_width', delimiter=None)
 
