@@ -50,10 +50,10 @@ fi
 echo "Reading inputs from ${input_filename}"
 
 while read -r line; do
-  set ${line}
-  if [[ "$1" =~ "^#" ]]; then
+  if [[ "${line}" =~ "pointing" ]]; then
     continue
   fi
+  set ${line}
   pointing=$1 && shift
   ccd=$1 && shift
   index=$1 && shift
