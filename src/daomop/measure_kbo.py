@@ -110,6 +110,7 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
                     if record_index == obsdate.mpc[0:14]:
                         colour = 'cyan' and not obs.null_observation or 'red'
                         circle = f'icrs; circle({obs.coordinate.ra.degree}d,{obs.coordinate.dec.degree}d,5p) # color={colour}'
+                        print(circle)
                         ds9.set('regions', circle)
                         break
             else:
