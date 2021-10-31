@@ -26,6 +26,10 @@ DS9_NAME = 'validate'
 field_ids = {3068: 'P68', 3071: 'P71', 3072: 'P72', 3147: 'Q47', 3148: 'Q48'}
 
 
+def stop_ds9(name=DS9_NAME):
+    get_ds9(name).set('exit')
+
+
 def start_ds9(name=DS9_NAME):
     """
     START a DS9 viewer with name 'name' if one with that name isn't already running.
@@ -219,7 +223,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
         colour = "{blue}"
         ds9.set('regions', f'image; circle {x} {y} 4 # color={colour}')
 
-        obsdate = Time(Time(fits.open(image)[0].header['DATE-AVG'], scale='tai').mjd,
+        obsdate = Time(Time(fits.open(image)[0].header['DATE-AVG'], scale='tai').utc,
                        format='mjd',
                        precision=6).mpc
 
@@ -301,7 +305,12 @@ def main(orbit=None, **kwargs):
         regions = None
 
     wcs_dict = {}
-    epoch = Time(kwargs.get('epoch', orbit.epoch.mjd), format='mjd')
+    if orbit is not None:
+        epoch = orbit.epoch.mjd
+    else:
+        epoch = Time("2020-06-22T00:00:00")
+
+    epoch = Time(kwargs.get('epoch', epoch), format='mjd')
 
     load_images(images, ra, dec, wcs_dict, orbit,
                 dra=rate*math.cos(math.radians(angle)),
@@ -472,6 +481,7 @@ def run():
     logging.info(f"Using vos:{version.version}")
     start_ds9()
     args.func(**vars(args))
+    stop_ds9()
 
 
 if __name__ == '__main__':
