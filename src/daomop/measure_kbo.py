@@ -104,11 +104,17 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
                 uncertainty_ellipse = (orbit.dra.to('arcsec').value,
                                        orbit.ddec.to('arcsec').value,
                                        orbit.pa.to('degree').value + 90)
+                colour = 'green'
+                for obs in orbit.observations:
+                    record_index = obs.date.mpc[0:14]
+                    if record_index == obsdate.mpc[0:14]:
+                        colour = 'cyan' and not obs.null_observation or 'red'
+                        break
             else:
                 ra1 = ra - dra*(obsdate-basedate).to('hour').value/3600.
                 dec1 = dec - ddec*(obsdate-basedate).to('hour').value/3600.0
                 uncertainty_ellipse = 3, 3, 0
-            colour = rejected and 'red' or 'green'
+            colour = rejected and 'red' or colour
             ds9.set('regions', f'icrs; ellipse({ra1},{dec1},'
                                f'{uncertainty_ellipse[0]}",'
                                f'{uncertainty_ellipse[1]}",'
