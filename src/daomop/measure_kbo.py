@@ -101,6 +101,7 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
             if basedate is None:
                 basedate = obsdate
             wcs_dict[image] = WCS(header)
+            colour = 'yellow'
             if orbit is not None:
                 orbit.predict(obsdate)
                 ra1 = orbit.coordinate.ra.degree
