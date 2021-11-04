@@ -153,6 +153,8 @@ def main():
     for colname in RESOLVED_COLUMN_NAMES:
         detections[colname] = RESOLVED_COLUMN_FILL[colname]
     detections['nstk'] = 3
+    if 'mag' not in detections.colnames:
+        detections['mag'] = -1.0
     for colname in OUTPUT_COLUMN_FMT:
         detections[colname].info.format = OUTPUT_COLUMN_FMT[colname]
     idx = {}
