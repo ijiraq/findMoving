@@ -483,9 +483,15 @@ def run():
     args = main_parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level))
     logging.info(f"Using vos:{version.version}")
-    start_ds9()
-    args.func(**vars(args))
-    stop_ds9()
+
+    try:
+        start_ds9()
+        try:
+            args.func(**vars(args))
+        finally:
+            stop_ds9()
+    except Exception as ex:
+        logging.error({ex})
 
 
 if __name__ == '__main__':
