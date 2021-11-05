@@ -121,6 +121,7 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
                 ra1 = ra - dra*(obsdate-basedate).to('hour').value/3600.
                 dec1 = dec - ddec*(obsdate-basedate).to('hour').value/3600.0
                 uncertainty_ellipse = 3, 3, 0
+                colour = 'pink'
             colour = rejected and 'red' or colour
             ds9.set('regions', f'icrs; ellipse({ra1},{dec1},'
                                f'{uncertainty_ellipse[0]}",'
@@ -280,6 +281,7 @@ def main(orbit=None, **kwargs):
     int_angle = int((angle % 360) * 10)
     images = []
     # Load the 3 images associated with this point/chip/rate/angle set.
+    epoch = None
     for idx in range(nstk):
         expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{idx}'
         image = f'{expnum}p{chip:02d}.fits'
@@ -297,6 +299,7 @@ def main(orbit=None, **kwargs):
             # Return empty set on VOSpace copy error.
             return {}
         images.append(image)
+    epoch = Time(fits.open(images[1])[0].header('DATE-AVG'), scale='tai').utc
 
     regions = f'{dbimages}/{pointing:05d}.reg'
     try:
@@ -308,8 +311,8 @@ def main(orbit=None, **kwargs):
     wcs_dict = {}
     if orbit is not None:
         epoch = orbit.epoch.mjd
-    else:
-        epoch = Time("2020-06-22T00:00:00")
+    if epoch is None:
+        epoch = Time("2020-05-22T00:00:00")
 
     epoch = Time(kwargs.get('epoch', epoch), format='mjd')
 
