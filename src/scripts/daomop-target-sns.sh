@@ -3,51 +3,87 @@
 filter="HSC-R2"
 loglevel="ERROR"
 
+DEBUG="10"
+INFO="20"
+WARNING="30"
+ERROR="40"
+
+function logmsg() {
+  msg_level=$(eval echo \$$1)
+  log_level=$(eval echo \$"$loglevel")
+  [ "${log_level}" -le "${msg_level}" ] && echo "${1}: ${2}"
+  [ "${msg_level}" -ge "${ERROR}" ] && echo "EXIT CODE ${3}" && exit "${3}"
+}
+
+function show_help() {
+cat << EOF
+Usage: ${0##*/} -l loglevel base_dir exptype pointing chip index x y rate angle mag stack ra dec num
+
+${0##*/} takes the inputs of where a source was found and creates a new set of stacks using a subset
+aka cutout, of the pixel data centred around the RA/DEC provided at the rate/angle requested.
+These cutouts can be used to measure the RA/DEC of the source in 'num' independent stacks of the
+data taken on given night/field [aka pointing in LSST parlance]
+
+The cutout stacked data will be written to: base_dir/rerun/TARGXXXXXX
+Where XXXXXX is set by mktemp to temporarily store results which will
+Ultimately end up in your current directory in a directory named pointing/chip/index
+Expect that pointing/chip/index is unique.
+
+options:
+-l loglevel (DEBUG,INFO,ERROR) DEFAULT LEVEL: ${loglevel}
+-h show_help
+
+Where:
+     base_dir: directory that contains the LSST Pipeline rerun directory with the images to stack.
+     exptype : type of LSST Pipeline images to stack (normally DIFFEXP, sometimes CORR or MASKED).
+     pointing: the LSST Pipeline pointing number for this data (e.g. 03148)
+     chip     : the CCD to stack up
+     index   : index number of source on that chip (used to create provisional name during measure step)
+     x       : The x-pixel location of the source in the searched stack set (ignored)
+     y       : The y-pixel location of the source in the searched stack set (ignored)
+     rate    : rate of motion to stack at (-ve implies target moving west)
+     angle   : Angle to stack at 0 degrees is West, 90 is North
+     mag     : magnitude of the source, expected for artificial sources.
+     stack   : name of the stack set where the srouce was found (ignored)
+     ra      : RA to centre stack around
+     dec     : DEC to centre stack around
+     num     : How many groups of stacks to make, each group provides independent source measure
+EOF
+}
+
+OPTIND=1
+while getopts lhf: opt; do
+  shift
+  case "${opt}" in
+    l) loglevel="${1}"
+      shift
+      ;;
+    h) show_help
+      exit 0
+      ;;
+    *) show_help >& 2
+      exit 1
+      ;;
+  esac
+done
+
+
+# Need at least 3 arguments to proceed.
 if [ $# -lt 3 ]; then
-  echo "Usage: ${0} base_dir exptype pointing chip index x y rate angle mag stack ra dec num"
-  echo ""
-  echo "${0} takes the inputs of where a source was found and creates a new set of stacks using a subset,"
-  echo " aka cutout, of the pixel data centred around the RA/DEC provided at the rate/angle requested."
-  echo " These cutouts can be used to measure the RA/DEC of the source in 'num' independent stacks of the"
-  echo " data taken on given night/field [aka pointing in LSST parlance]"
-  echo ""
-  echo " The cutout stacked data will be written to: base_dir/rerun/RANDOM "
-  echo " Where RANDOM is created by mktemp to temporarily store results which will "
-  echo " Ultimately endup in your current directory in a directory named pointing/chip/index "
-  echo " Expect that pointing/chip/index is unique."
-  echo ""
-  echo " settings:"
-  echo " loglevel: ${loglevel}"
-  echo "   filter: ${filter}"
-  echo ""
-  echo "Where: "
-  echo "       base_dir: directory that contains the LSST Pipeline rerun directory with the images to stack."
-  echo "       exptype : type of LSST Pipeline images to stack (normally DIFFEXP, sometimes CORR or MASKED)."
-  echo "       pointing: the LSST Pipeline pointing number for this data (e.g. 03148)"
-  echo "       chip     : the CCD to stack up"
-  echo "       index   : index number of source on that chip (used to create provisional name during measure step)"
-  echo "       x       : The x-pixel location of the source in the searched stack set (ignored)"
-  echo "       y       : The y-pixel location of the source in the searched stack set (ignored)"
-  echo "       rate    : rate of motion to stack at (-ve implies target moving west)"
-  echo "       angle   : Angle to stack at 0 degrees is West, 90 is North"
-  echo "       mag     : magnitude of the source, expected for artificial sources."
-  echo "       stack   : name of the stack set where the srouce was found (ignored)"
-  echo "       ra      : RA to centre stack around"
-  echo "       dec     : DEC to centre stack around"
-  echo "       num     : How many groups of stacks to make, each group provides independent source measure"
-  exit 0
+  show_help
+  exit 1
 fi
 
 basedir=$1 && shift
 exptypes=$1 && shift
 input_filename=$1
 if [ ! -f "${input_filename}" ]; then
-  input_filename=$(mktemp "${TMPDIR:=/tmp}/XXXXXX_tract.txt")
+  input_filename=$(mktemp "${TMPDIR:=/tmp}/DAOMOP_TARGET_XXXXXX")
+  logmsg DEBUG "Creating temporary file ${input_filename} to hold input arguments"
   echo "${@}" >"${input_filename}"
-  echo "Created temporary file ${input_filename} to hold input arguments"
 fi
 
-echo "Reading inputs from ${input_filename}"
+logmsg INFO "Reading inputs from ${input_filename}"
 
 while read -r line; do
   if [[ "${line}" =~ "pointing" ]]; then
@@ -87,36 +123,38 @@ while read -r line; do
   # echo "${basedir} ${exptype} ${pointing} ${chip} ${index} ${x} ${y} ${rate} ${angle} ${stack} ${ra} ${dec} ${num}"
 
   # check for MASKED or DIFFEXP in basedir/rerun/*/pointing and select input dir and exptype that is best suited.
-  if [ "${exptypes}" == "UNKNOWN" ] ; then
+  if [ "${exptypes}" == "UNKNOWN" ]; then
     exptypes="MASKED DIFFEXP CORR"
   fi
   for exptype in ${exptypes}; do
-    # echo "Looking for ${exptype} files in ${basedir}/rerun with sub-directory ${pointing}"
+    logmsg DEBUG "Looking for ${exptype} files in ${basedir}/rerun with sub-directory ${pointing}"
+    [ -d "${basedir}/rerun" ] || logmsg ERROR "RERUN directory ${basedir}/rerun does not exist" 1
     input=$(find "${basedir}/rerun" -path "*${pointing}*" -name "${exptype}-*-${chip}.f*" -print | head -n 1)
-    # echo "Found -->${input}<--"
+    logmsg DEBUG "Found this file: -->${input}<--"
     [ "${input}" ] || continue
     input="${input##*rerun/}"
     input="${input%%/*}"
     break
   done
-  if [ "${input}" ]; then
-    echo "FAILED TO GUESS INPUT RERUN going to next row"
+  if [ ! "${input}" ]; then
+    logmsg WARNING "FAILED TO GUESS INPUT RERUN going to next row"
     continue
   fi
 
-  echo "Using ${exptype} for ${pointing} in rerun directory ${input}"
+  logmsg INFO "Using ${exptype} for ${pointing} in rerun directory ${input}"
 
   # Create locations to store the stamps... do this before we both making the stamps.
   stack_dir="${pointing}/${chip}/${index}"
   [ -d "${stack_dir}" ] || mkdir -p "${stack_dir}" || exit
 
   # Create temporary location that daomop-sns will store data to
-  output=$(mktemp -d "${basedir}/rerun/XXXXXX")
+  output=$(mktemp -d "${basedir}/rerun/TARGXXXXXX")
+  output="${output##*rerun/}"
   lsst_dir="${basedir}/rerun/${output}/${exptype}/${pointing}/${filter}/"
-  [ "$(ls -A ${lsst_dir} 2> /dev/null)" ] && echo "ERROR: ${lsst_dir} not empty" && exit
+  [ "$(ls -A ${lsst_dir} 2>/dev/null)" ] && logmsg ERROR "${lsst_dir} not empty" 2
 
-  # echo "Using daomop-sns to create stack"
-  echo "Stacking ${section}X${section} pixel box around ${ra} ${dec} at rate: ${rate} angle: ${angle}"
+  logmsg DEBUG "Using daomop-sns to create stack"
+  logmsg INFO "Stacking ${section}X${section} pixel box around ${ra} ${dec} at rate: ${rate} angle: ${angle}"
 
   daomop-sns "${basedir}" \
     --swarp \
@@ -136,7 +174,7 @@ while read -r line; do
     --section-size "${section}" \
     --clip 8
 
-  echo "Moving result from ${lsst_dir} to ${stack_dir}"
+  logmsg INFO "Moving result from ${lsst_dir} to ${stack_dir}"
   # Move files out of LSST directory and into a stack directory in local FS and on VOS
   find "${lsst_dir}" -type f -name '*.fits' -exec mv {} "${stack_dir}" \;
 
