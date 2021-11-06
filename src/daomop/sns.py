@@ -599,7 +599,7 @@ def main():
                         mid_rates = rates[len(rates) // 2]
                         ra_rate = mid_rates["rate"] * numpy.cos(numpy.deg2rad(mid_rates["angle"]))
                         dec_rate = mid_rates["rate"] * numpy.sin(numpy.deg2rad(mid_rates["angle"]))
-                        image_epoch = time.Time(hdul[0].header['MJD-OBS'], format='mjd').utc
+                        image_epoch = time.Time(hdul[0].header['MJD-STR'], format='mjd').utc
                         dt = (image_epoch - centre_epoch).to('hour')
                         dra = ra_rate*dt.to('hour').value
                         ddec = dec_rate*dt.to('hour').value
