@@ -42,6 +42,7 @@ def start_ds9(name=DS9_NAME):
     while True:
         try:
             ds9 = pyds9.DS9(target=name)
+            time.sleep(3)
             break
         except Exception as ex:
             if c > 10:
@@ -55,6 +56,10 @@ def start_ds9(name=DS9_NAME):
         setting = config.read(f"DS9.{level}")
         for key in list(setting.keys()):
             ds9.set(f"{key.replace('_', ' ')} {setting[key]}")
+    ds9.set("view.panner yes")
+    ds9.set("width 600")
+    ds9.set("height 400")
+
     ds9.set("frame delete all")
     return ds9
 
@@ -155,7 +160,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
                     'p': ('', 'Previous frame'),
                     'n': ('', 'Next frame'),
                     'r': ('', 'Create a NULL observation.')}
-    print(allowed_keys)
+
     for key in [x.split() for x in config.read("MPC.NOTE1OPTIONS")]:
         allowed_keys[key[0].lower()] = key
 
@@ -177,6 +182,10 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
         if key == 'p':
             ds9.set('frame prev')
             continue
+        if key == 'q':
+            break
+        if key == 'Q':
+            raise SystemExit("Q hit")
 
         if key not in allowed_keys:
             logging.info(f"Allowed keys: ")
@@ -184,8 +193,6 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
                 print(f"{key} -> {allowed_keys[key][1]}")
             continue
 
-        if key == 'q':
-            break
         note1 = allowed_keys[key][0]
         frame_no = int(ds9.get('frame')) - 1
         image = images[frame_no]
@@ -305,7 +312,8 @@ def main(orbit=None, **kwargs):
     try:
         if not os.access(regions, os.R_OK):
             regions = client.copy(regions, '.', disposition=True)
-    except:
+    except Exception as ex:
+        logging.debug(f"{ex}")
         regions = None
 
     wcs_dict = {}

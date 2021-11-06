@@ -65,11 +65,13 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
     for row in skycat:
         orbit.predict(Time(row['mjdobs'], format='mjd'))
         coord1 = orbit.coordinate
-        dra = orbit.dra.to('degree').value
-        ddec = orbit.ddec.to('degree').value
         if not (row['ramin'] < coord1.ra.degree < row['ramax'] and
                 row['decmin'] < coord1.dec.degree < row['decmax']):
             continue
+        dra = orbit.dra.to('degree').value
+        ddec = orbit.ddec.to('degree').value
+        # if dra**2 + ddec**2 > 0.002**2:
+        #    continue
         index += 1
         orbit.predict(Time(row['mjdobs']+1/24.0, format='mjd'))
         coord2 = orbit.coordinate
@@ -94,7 +96,10 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                            dra,
                            ddec])
     track_rows = numpy.array(track_rows)
-    Table(track_rows, names=colnames).write(track_filename, format='ascii.fixed_width', delimiter=None)
+
+    t = Table(track_rows, names=colnames)
+    t.sort('dra')
+    t.write(track_filename, format='ascii.fixed_width', delimiter=None)
 
 
 if __name__ == '__main__':
