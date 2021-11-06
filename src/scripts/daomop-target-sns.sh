@@ -67,21 +67,33 @@ while read -r line; do
   dec=$1 && shift
   num=$1 && shift
 
+  # Set the size of the cutout area to make in target mode.
+  section=50
+  if [ $# -eq 4 ]; then
+    section=$(echo "$3" | awk '{printf("%d",2*$1*3600/0.16)}')
+  fi
+  if [ "${section}" -lt "50" ]; then
+    section=50
+  fi
+  if [ "${section}" -gt "600" ]; then
+    section=500
+  fi
+
   # put leading zeros in but remove them first, if they are already there.
   pointing=$(echo "${pointing}" | awk '{printf("%05d", $1)}')
   chip=$(echo "${ccd}" | awk ' {printf("%03d", $1)}')
   index=$(echo "${index}" | awk '{printf("%04d", $1)}')
 
-  echo "${basedir} ${exptype} ${pointing} ${chip} ${index} ${x} ${y} ${rate} ${angle} ${stack} ${ra} ${dec} ${num}"
+  # echo "${basedir} ${exptype} ${pointing} ${chip} ${index} ${x} ${y} ${rate} ${angle} ${stack} ${ra} ${dec} ${num}"
 
   # check for MASKED or DIFFEXP in basedir/rerun/*/pointing and select input dir and exptype that is best suited.
   if [ "${exptypes}" == "UNKNOWN" ] ; then
     exptypes="MASKED DIFFEXP CORR"
   fi
   for exptype in ${exptypes}; do
-    echo "Looking for ${exptype} files in ${basedir}/rerun with sub-directory ${pointing}"
+    # echo "Looking for ${exptype} files in ${basedir}/rerun with sub-directory ${pointing}"
     input=$(find "${basedir}/rerun" -path "*${pointing}*" -name "${exptype}-*-${chip}.f*" -print | head -n 1)
-    echo "Found -->${input}<--"
+    # echo "Found -->${input}<--"
     [ "${input}" ] || continue
     input="${input##*rerun/}"
     input="${input%%/*}"
@@ -94,9 +106,6 @@ while read -r line; do
 
   echo "Using ${exptype} for ${pointing} in rerun directory ${input}"
 
-
-  section=200
-
   # Create locations to store the stamps... do this before we both making the stamps.
   stack_dir="${pointing}/${chip}/${index}"
   [ -d "${stack_dir}" ] || mkdir -p "${stack_dir}" || exit
@@ -104,11 +113,10 @@ while read -r line; do
   # Create temporary location that daomop-sns will store data to
   output=$(mktemp -d "${basedir}/rerun/XXXXXX")
   lsst_dir="${basedir}/rerun/${output}/${exptype}/${pointing}/${filter}/"
-  [ "$(ls -A ${lsst_dir})" ] && echo "${lsst_dir} not empty, exiting" && exit
+  [ "$(ls -A ${lsst_dir} 2> /dev/null)" ] && echo "ERROR: ${lsst_dir} not empty" && exit
 
-  echo "Using daomop-sns to create stack at ${lsst_dir}"
+  # echo "Using daomop-sns to create stack"
   echo "Stacking ${section}X${section} pixel box around ${ra} ${dec} at rate: ${rate} angle: ${angle}"
-  echo "Then moving result from ${lsst_dir} to ${stack_dir}"
 
   daomop-sns "${basedir}" \
     --swarp \
@@ -128,6 +136,7 @@ while read -r line; do
     --section-size "${section}" \
     --clip 8
 
+  echo "Moving result from ${lsst_dir} to ${stack_dir}"
   # Move files out of LSST directory and into a stack directory in local FS and on VOS
   find "${lsst_dir}" -type f -name '*.fits' -exec mv {} "${stack_dir}" \;
 
