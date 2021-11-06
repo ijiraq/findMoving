@@ -56,9 +56,12 @@ def start_ds9(name=DS9_NAME):
         setting = config.read(f"DS9.{level}")
         for key in list(setting.keys()):
             ds9.set(f"{key.replace('_', ' ')} {setting[key]}")
-    ds9.set("view.panner yes")
-    ds9.set("width 600")
-    ds9.set("height 400")
+    ds9.set("view panner yes")
+    ds9.set("view magnifier yes")
+    ds9.set("width 2000")
+    ds9.set("height 1000")
+    ds9.set('cmap 1.4 0.5')
+
 
     ds9.set("frame delete all")
     return ds9
