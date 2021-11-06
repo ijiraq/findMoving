@@ -112,16 +112,9 @@ while read -r line; do
   ddec=$1 && shift
 
   # Set the size of the cutout area to make in target mode.
-  section=50
-  if [ $# -eq 4 ]; then
-    section=$(echo "${dra}" "${ddec}"| awk '{printf("%d",4*sqrt($1**2+$2**2)*3600/0.16)}')
-  fi
-  if [ "${section}" -lt "100" ]; then
-    section=50
-  fi
-  if [ "${section}" -gt "600" ]; then
-    section=500
-  fi
+  section=$(echo "${dra}" "${ddec}"| awk '{printf("%d",4*sqrt($1*$1+$2*$2)*3600/0.16)}')
+  [ "${section}" -lt "100" ] && section=100
+  [ "${section}" -gt "600" ] && section=600
 
   # put leading zeros in but remove them first, if they are already there.
   pointing=$(echo "${pointing}" | awk '{printf("%05d", $1)}')
