@@ -603,7 +603,7 @@ def main():
                         dt = (image_epoch - centre_epoch).to('hour')
                         dra = ra_rate*dt.to('hour').value
                         ddec = dec_rate*dt.to('hour').value
-                        ra_centre = args.center[0]+dra/3600.0
+                        ra_centre = args.centre[0]+dra/3600.0
                         dec_centre = args.centre[1]+ddec/3600.0
                         centre = SkyCoord(ra_centre, dec_centre, units='degree')
                         logging.info(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
