@@ -438,7 +438,8 @@ def main_list(**kwargs):
     if kwargs['provisional_name']:
         t['provisional_name'] = os.path.splitext(os.path.basename(kwargs['detections']))[0]
         logging.info(f"Using provisional name {t['provisional_name'][0]}")
-
+    # Do the best chance first.
+    t.sort('dra')
     for row in t:
 
         if 'provisional_name' not in row.colnames:
