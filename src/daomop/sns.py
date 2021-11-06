@@ -597,8 +597,8 @@ def main():
                         # make the center of cutouts the RA/DEC given but offset for epoch of RA/DEC and middle rate of motion.
                         centre_epoch = time.Time(args.centre[2], format='mjd').utc
                         mid_rates = rates[len(rates) // 2]
-                        ra_rate = mid_rates["rate"] * numpy.cos(mid_rates[numpy.deg2rad(mid_rates["angle"])])
-                        dec_rate = mid_rates["rate"] * numpy.sin(mid_rates[numpy.deg2rad(mid_rates["angle"])])
+                        ra_rate = mid_rates["rate"] * numpy.cos(numpy.deg2rad(mid_rates["angle"]))
+                        dec_rate = mid_rates["rate"] * numpy.sin(numpy.deg2rad(mid_rates["angle"]))
                         image_epoch = time.Time(hdul[0].header['MJD-OBS'], format='mjd').utc
                         dt = (image_epoch - centre_epoch).to('hour')
                         dra = ra_rate*dt.to('hour').value
