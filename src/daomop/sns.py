@@ -647,7 +647,9 @@ def main():
                     hdu[HSC_HDU_MAP['variance']].header['MVAR'] = (numpy.nanmedian(hdu[HSC_HDU_MAP['variance']].data),
                                                                    'Median variance')
                     logging.debug(f'Median variance is {hdu[HSC_HDU_MAP["variance"]].header["MVAR"]}')
-                    bright_mask = hdu[HSC_HDU_MAP['variance']].data > hdu[HSC_HDU_MAP['variance']].header['MVAR']*args.clip
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=RuntimeWarning)
+                        bright_mask = hdu[HSC_HDU_MAP['variance']].data > hdu[HSC_HDU_MAP['variance']].header['MVAR']*args.clip
                     detected_mask = bitfield_to_boolean_mask(hdu[HSC_HDU_MAP['mask']].data,
                                                              ignore_flags=LSST_MASK_BITS['DETECTED'],
                                                              flip_bits=True)
