@@ -139,7 +139,7 @@ while read -r line; do
     [ -d "${basedir}/rerun" ] || logmsg ERROR "RERUN directory ${basedir}/rerun does not exist" 1
     input=$(find "${basedir}/rerun" -path "*${pointing}*" -name "${exptype}-*-${chip}.f*" -print | head -n 1)
     logmsg DEBUG "Found this file: -->${input}<--"
-    [ ! "${input}" ] || continue
+    [ "${input}" ] || continue
     input="${input##*rerun/}"
     input="${input%%/*}"
     break
