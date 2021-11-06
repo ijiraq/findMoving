@@ -605,7 +605,7 @@ def main():
                         ddec = dec_rate*dt.to('hour').value
                         ra_centre = args.centre[0]+dra/3600.0
                         dec_centre = args.centre[1]+ddec/3600.0
-                        centre = SkyCoord(ra_centre, dec_centre, units='degree')
+                        centre = SkyCoord(ra_centre, dec_centre, unit='degree')
                         logging.info(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
                     hduc = fits.HDUList()
                     hduc.append(fits.PrimaryHDU(header=hdul[0].header))
