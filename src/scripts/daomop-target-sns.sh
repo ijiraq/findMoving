@@ -48,6 +48,10 @@ Where:
      ra      : RA to centre stack around
      dec     : DEC to centre stack around
      num     : How many groups of stacks to make, each group provides independent source measure
+     name    : Provisional name of thing being stacked.
+     epoch   : MJD of ra/dec position.
+     dra     : RA ARC rate of motion of target at epoch (DeltaRA/cos(DEC))
+     ddec    : DEC ARC Rate of motion of target at epoch
 EOF
 }
 
@@ -102,13 +106,17 @@ while read -r line; do
   ra=$1 && shift
   dec=$1 && shift
   num=$1 && shift
+  provisional_name=$1 && shift
+  epoch=$1 && shift
+  dra=$1 && shift
+  ddec=$1 && shift
 
   # Set the size of the cutout area to make in target mode.
   section=50
   if [ $# -eq 4 ]; then
-    section=$(echo "$3" | awk '{printf("%d",2*$1*3600/0.16)}')
+    section=$(echo "${dra}" "${ddec}"| awk '{printf("%d",4*sqrt($1**2+$2**2)*3600/0.16)}')
   fi
-  if [ "${section}" -lt "50" ]; then
+  if [ "${section}" -lt "100" ]; then
     section=50
   fi
   if [ "${section}" -gt "600" ]; then
@@ -165,7 +173,7 @@ while read -r line; do
     --log-level "${loglevel}" \
     --exptype "${exptype}" \
     --group \
-    --centre "${ra}" "${dec}" \
+    --centre "${ra}" "${dec}" "${epoch}" \
     --angle-min "${angle}" \
     --angle-max "${angle}" \
     --rate-min "${rate}" \

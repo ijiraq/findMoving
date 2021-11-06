@@ -459,7 +459,7 @@ def main():
     parser.add_argument('--section-size', type=int, default=1024,
                         help='Break images into section when stacking (conserves memory)')
     parser.add_argument('--centre', default=None, help="only stack data around this RA/DEC (decimal degree) centre",
-                        nargs=2, type=float)
+                        nargs=3, type=float)
     parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
@@ -489,6 +489,7 @@ def main():
                         args.angle_min, args.angle_max, args.angle_step)
     logging.info(f'Shift-and-Stacking the following list of rate/angle pairs: '
                  f'{[(rate["rate"],rate["angle"]) for rate in rates]}')
+
 
     logging.info(f'Loading all images matching pattern: {input_rerun}')
     images = np.array(get_image_list(input_rerun, args.exptype, ccd=args.ccd,
@@ -586,18 +587,31 @@ def main():
                 hdus.close()
 
         if args.centre is not None:
-            centre = SkyCoord(args.centre[0], args.centre[1], unit='degree')
             box_size = args.section_size//2
-            logging.info(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
             chdus = {}
+            centre = None
             for key in hdus:
                 with fits.open(key) as hdul:
                     image = hdul[0].header['IMAGE']
+                    if centre is None:
+                        # make the center of cutouts the RA/DEC given but offset for epoch of RA/DEC and middle rate of motion.
+                        centre_epoch = time.Time(args.centre[2], format='mjd').utc
+                        mid_rates = rates[len(rates) // 2]
+                        ra_rate = mid_rates["rate"] * numpy.cos(mid_rates[numpy.radians("angle")])
+                        dec_rate = mid_rates["rate"] * numpy.sin(mid_rates[numpy.radians("angle")])
+                        image_epoch = time.Time(hdul[0].header['MJD-OBS'], format='mjd').utc
+                        dt = (image_epoch - centre_epoch).to('hour')
+                        dra = ra_rate*dt.to('hour').value
+                        ddec = dec_rate*dt.to('hour').value
+                        ra_centre = args.center[0]+dra/3600.0
+                        dec_centre = args.centre[1]+ddec/3600.0
+                        centre = SkyCoord(ra_centre, dec_centre, units='degree')
+                        logging.info(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
                     hduc = fits.HDUList()
                     hduc.append(fits.PrimaryHDU(header=hdul[0].header))
                     w = WCS(astheads[image])
                     try:
-                        x, y = w.all_world2pix(args.centre[0], args.centre[1], 0)
+                        x, y = w.all_world2pix(centre.ra.degree, centre.dec.degree, 0)
                     except Exception as ex:
                         logging.error(str(ex))
                         continue

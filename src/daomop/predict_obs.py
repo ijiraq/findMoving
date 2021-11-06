@@ -3,11 +3,11 @@ Given an ephemeris file and list of RA/DEC bounding boxes determine which boxes 
 """
 import argparse
 import numpy
+from astropy import units
 from astropy.table import Table
 from astropy.time import Time
 from mp_ephem import BKOrbit
 import logging
-from daomop import util
 
 
 def run():
@@ -63,7 +63,8 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
     name = orbit.observations[0].provisional_name
     index = 0
     for row in skycat:
-        orbit.predict(Time(row['mjdobs'], format='mjd'))
+        epoch = Time(row['mjdobs'], format='mjd').utc
+        orbit.predict(epoch)
         coord1 = orbit.coordinate
         if not (row['ramin'] < coord1.ra.degree < row['ramax'] and
                 row['decmin'] < coord1.dec.degree < row['decmax']):
@@ -73,7 +74,7 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
         # if dra**2 + ddec**2 > 0.002**2:
         #    continue
         index += 1
-        orbit.predict(Time(row['mjdobs']+1/24.0, format='mjd'))
+        orbit.predict(epoch+1*units.hour)
         coord2 = orbit.coordinate
         ra_rate = (coord2.ra - coord1.ra).to('arcsec')
         dec_rate = (coord2.dec - coord1.dec).to('arcsec')
@@ -92,7 +93,7 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                            orbit.dec.degree,
                            3,
                            name,
-                           row['mjdobs'],
+                           epoch.mjd,
                            dra,
                            ddec])
     track_rows = numpy.array(track_rows)
