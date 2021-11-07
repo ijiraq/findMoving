@@ -501,18 +501,18 @@ def main():
     mjds = []
     logging.info(f"Sorting list of {len(images)} based on mjd")
     new_images = []
-    hdus = {}
+    full_hdus = {}
     for filename in images:
         try:
             hdulist = fits.open(filename)
             image = os.path.basename(filename)
-            hdus[image] = hdulist
-            hdus[image][0].header['IMAGE'] = image
+            full_hdus[image] = hdulist
+            full_hdus[image][0].header['IMAGE'] = image
             mjds.append(time.Time(mid_exposure_mjd(hdulist[0])))
             new_images.append(image)
         except Exception as ex:
             logging.error(str(ex))
-            logging.error(f"Failed to open {image} not using")
+            logging.error(f"Failed to open {filename} not using")
 
     ind = np.argsort(mjds)
     # sort the images by mjd
@@ -533,7 +533,7 @@ def main():
             sub_images = images[index::args.n_sub_stacks]
             reference_idx = int(len(images) // 2)
             reference_image = images[reference_idx]
-            reference_hdu = hdus[reference_image]
+            reference_hdu = full_hdus[reference_image]
             # reference_hdu = fits.open(images[reference_idx])
             # reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
             # reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
@@ -547,7 +547,7 @@ def main():
 
         hdus = {}
         for image in sub_images:
-            hdus[image] = fits.open(image)
+            hdus[image] = full_hdus[image]
             # with fits.open(image, mode='update') as hdulist:
             #    hdulist[0].header['IMAGE'] = os.path.basename(image)
             # hdus[image] = os.path.basename(image)
@@ -608,8 +608,8 @@ def main():
                         ra_centre = args.centre[0]+dra*numpy.cos(numpy.deg2rad(dec_centre))
                         centre = SkyCoord(ra_centre, dec_centre, unit='degree')
                         logging.info(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
-                    hduc = fits.HDUList()
-                    hduc.append(fits.PrimaryHDU(header=hdul[0].header))
+                    # hduc = fits.HDUList()
+                    # hduc.append(fits.PrimaryHDU(header=hdul[0].header))
                     w = WCS(astheads[image])
                     try:
                         x, y = w.all_world2pix(centre.ra.degree, centre.dec.degree, 0)
@@ -624,6 +624,10 @@ def main():
                     y2 = int(min(hdul[1].header['NAXIS2'], y1 + 2*box_size))
                     y1 = int(max(0, y2 - 2*box_size))
                     logging.info(f'{hdul[0].header["FRAMEID"]} -> [{y1}:{y2},{x1}:{x2}]')
+                    hdul[0].header['XOFFSET'] = x1
+                    hdul[0].header['YOFFSET'] = y1
+                    astheads[image]['CRPIX1'] -= x1
+                    astheads[image]['CRPIX2'] -= y1
                     for idx in range(1, 4):
                         try:
                             data = hdul[idx].data[y1:y2, x1:x2]
@@ -632,15 +636,12 @@ def main():
                             logging.error(f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdul[0].header['FRAMEID']}, blanking this frame.")
                             data = np.ones((y2-y1+1)*(x2-x1+1))*np.nan
                             data.shape = y2-y1+1, x2-x1+1
-                        hduc.append(fits.ImageHDU(data=data, header=hdul[idx].header))
-                        hduc[-1].header['XOFFSET'] = x1
-                        hduc[-1].header['YOFFSET'] = y1
-                    astheads[image]['CRPIX1'] -= x1
-                    astheads[image]['CRPIX2'] -= y1
+                        hdul[idx].data = data
+                        # hduc.append(fits.ImageHDU(data=data, header=hdul[idx].header))
                     # tt_file = tempfile.NamedTemporaryFile(delete=False)
                     # logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
                     # hduc.writeto(tt_file)
-                    chdus[image] = hduc
+                    chdus[image] = hdul
             hdus = chdus
         hdus2 = {}
         # Remove from the list HDULists where there is no data left (after cutout)
@@ -717,6 +718,8 @@ def main():
             output[0].header['REFEXP'] = (reference_filename, 'reference exposure')
             output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0]).mjd, " MID Exposure")
             output[0].header['ASTLEVEL'] = 1
+            output[0].header['YOFFSET'] = reference_hdu.header.get('YOFFSET', 0)
+
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
             output.writeto(output_filename, overwrite=True)
