@@ -595,7 +595,7 @@ def main():
                     image = hdul[0].header['IMAGE']
                     if centre is None:
                         # make the center of cutouts the RA/DEC given but offset for epoch of RA/DEC and middle rate of motion.
-                        centre_epoch = Time(args.centre[2], format='mjd').utc
+                        centre_epoch = time.Time(args.centre[2], format='mjd').utc
                         mid_rates = rates[len(rates) // 2]
                         ra_rate = mid_rates["rate"] * numpy.cos(numpy.deg2rad(mid_rates["angle"]))/3600.0
                         dec_rate = mid_rates["rate"] * numpy.sin(numpy.deg2rad(mid_rates["angle"]))/3600.0
