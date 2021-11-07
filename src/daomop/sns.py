@@ -597,12 +597,12 @@ def main():
                         # make the center of cutouts the RA/DEC given but offset for epoch of RA/DEC and middle rate of motion.
                         centre_epoch = args.centre[2]
                         mid_rates = rates[len(rates) // 2]
-                        ra_rate = mid_rates["rate"] * numpy.cos(numpy.deg2rad(mid_rates["angle"]))
-                        dec_rate = mid_rates["rate"] * numpy.sin(numpy.deg2rad(mid_rates["angle"]))
+                        ra_rate = mid_rates["rate"] * numpy.cos(numpy.deg2rad(mid_rates["angle"]))/3600.0
+                        dec_rate = mid_rates["rate"] * numpy.sin(numpy.deg2rad(mid_rates["angle"]))/3600.0
                         reference_date = mid_exposure_mjd(reference_hdu[0])
-                        dt = (reference_date - centre_epoch)*24.0
-                        dra = ra_rate*dt/3600.0
-                        ddec = dec_rate*dt/3600.0
+                        dt = (reference_date - centre_epoch).to('hour').value
+                        dra = ra_rate*dt
+                        ddec = dec_rate*dt
                         dec_centre = args.centre[1]+ddec
                         ra_centre = args.centre[0]+dra*numpy.cos(numpy.deg2rad(dec_centre))
                         centre = SkyCoord(ra_centre, dec_centre, unit='degree')
