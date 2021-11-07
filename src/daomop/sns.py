@@ -501,11 +501,15 @@ def main():
     mjds = []
     logging.info(f"Sorting list of {len(images)} based on mjd")
     new_images = []
-    for image in images:
+    hdus = {}
+    for filename in images:
         try:
-            with fits.open(image, mode='update') as hdu:
-                mjds.append(time.Time(mid_exposure_mjd(hdu[0])))
-                new_images.append(image)
+            hdulist = fits.open(filename)
+            image = os.path.basename(filename)
+            hdus[image] = hdulist
+            hdus[image][0].header['IMAGE'] = image
+            mjds.append(time.Time(mid_exposure_mjd(hdulist[0])))
+            new_images.append(image)
         except Exception as ex:
             logging.error(str(ex))
             logging.error(f"Failed to open {image} not using")
@@ -529,8 +533,9 @@ def main():
             sub_images = images[index::args.n_sub_stacks]
             reference_idx = int(len(images) // 2)
             reference_image = images[reference_idx]
-            reference_hdu = fits.open(images[reference_idx])
-            reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
+            reference_hdu = hdus[reference_image]
+            # reference_hdu = fits.open(images[reference_idx])
+            # reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
             # reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         else:
             # group images by time
@@ -554,7 +559,9 @@ def main():
 
         if args.group:
             reference_idx = int(len(sub_images) // 2)
-            reference_hdu = fits.open(sub_images[reference_idx])
+            reference_image = images[reference_idx]
+            reference_hdu = hdus[reference_image]
+            # reference_hdu = fits.open(sub_images[reference_idx])
         reference_filename = os.path.splitext(reference_hdu[0].header['IMAGE'])[0][0:]
 
         if not args.swarp and args.rectify:
