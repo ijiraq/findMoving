@@ -35,9 +35,9 @@ options:
 
 Where:
      base_dir: directory that contains the LSST Pipeline rerun directory with the images to stack.
-     exptype : type of LSST Pipeline images to stack (normally DIFFEXP, sometimes CORR or MASKED).
+     exptype : type of LSST Pipeline images to stack (normally DIFFEXP, sometimes CORR or MASKED) use UNKNOWN if you don't know.
      pointing: the LSST Pipeline pointing number for this data (e.g. 03148)
-     chip     : the CCD to stack up
+     chip    : the CCD to stack up
      index   : index number of source on that chip (used to create provisional name during measure step)
      x       : The x-pixel location of the source in the searched stack set (ignored)
      y       : The y-pixel location of the source in the searched stack set (ignored)

@@ -659,7 +659,7 @@ def main():
                     if hdu[HSC_HDU_MAP['image']].header.get('CLIP', None) is not None:
                         continue
                     hdu[HSC_HDU_MAP['image']].header['CLIP'] = args.clip
-                    hdu.flush()
+                    # hdu.flush()
                     hdu[HSC_HDU_MAP['variance']].header['MVAR'] = (numpy.nanmedian(hdu[HSC_HDU_MAP['variance']].data),
                                                                    'Median variance')
                     logging.debug(f'Median variance is {hdu[HSC_HDU_MAP["variance"]].header["MVAR"]}')
