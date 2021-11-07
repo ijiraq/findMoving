@@ -557,9 +557,10 @@ def main():
 
         hdus = {}
         for image in sub_images:
-            with fits.open(image, mode='update') as hdulist:
-                hdulist[0].header['IMAGE'] = os.path.basename(image)
-            hdus[image] = os.path.basename(image)
+            hdus[image] = fits.open(image)
+            # with fits.open(image, mode='update') as hdulist:
+            #    hdulist[0].header['IMAGE'] = os.path.basename(image)
+            # hdus[image] = os.path.basename(image)
 
         if args.group:
             reference_idx = int(len(sub_images) // 2)
@@ -585,15 +586,17 @@ def main():
                 # noinspection PyUnresolvedReferences
                 hdus[idx][3].data = image.uncertainty
                 # noinspection PyUnresolvedReferences
-                hdus.close()
+                # hdus.close()
 
         if args.centre is not None:
             box_size = args.section_size//2
             chdus = {}
             centre = None
             for key in hdus:
-                with fits.open(key) as hdul:
-                    image = hdul[0].header['IMAGE']
+                # with fits.open(key) as hdul:
+                    hdul = hdus[key]
+                    image = key
+                    # image = hdul[0].header['IMAGE']
                     if centre is None:
                         # make the center of cutouts the RA/DEC given but offset for epoch of RA/DEC and middle rate of motion.
                         centre_epoch = time.Time(args.centre[2], format='mjd').utc
