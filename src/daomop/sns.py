@@ -429,8 +429,8 @@ def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
 
 def mid_exposure_mjd(hdu):
 
-    mjd_start = time.Time(hdu.header['MJD-STR'], format='mjd')
-    mjd_end = time.Time(hdu.header['MJD-END'], format='mjd')
+    mjd_start = time.Time(hdu.header['MJD-STR'], format='mjd').utc
+    mjd_end = time.Time(hdu.header['MJD-END'], format='mjd').utc
     return mjd_start + (mjd_end - mjd_start)/2.0
 
 
@@ -595,7 +595,7 @@ def main():
                     image = hdul[0].header['IMAGE']
                     if centre is None:
                         # make the center of cutouts the RA/DEC given but offset for epoch of RA/DEC and middle rate of motion.
-                        centre_epoch = args.centre[2]
+                        centre_epoch = Time(args.centre[2], format='mjd').utc
                         mid_rates = rates[len(rates) // 2]
                         ra_rate = mid_rates["rate"] * numpy.cos(numpy.deg2rad(mid_rates["angle"]))/3600.0
                         dec_rate = mid_rates["rate"] * numpy.sin(numpy.deg2rad(mid_rates["angle"]))/3600.0
