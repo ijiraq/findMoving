@@ -629,6 +629,7 @@ def main():
                     hdul[0].header['YOFFSET'] = y1
                     astheads[image]['CRPIX1'] -= x1
                     astheads[image]['CRPIX2'] -= y1
+                    logging.info(f'Extracting cutout of {image} from file on disk.')
                     for idx in range(1, 4):
                         try:
                             data = hdul[idx].data[y1:y2, x1:x2]
@@ -642,6 +643,7 @@ def main():
                     # tt_file = tempfile.NamedTemporaryFile(delete=False)
                     # logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
                     # hduc.writeto(tt_file)
+                    logging.info("DONE.")
                     chdus[image] = hdul
             hdus = chdus
         hdus2 = {}
@@ -719,7 +721,8 @@ def main():
             output[0].header['REFEXP'] = (reference_filename, 'reference exposure')
             output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0]).mjd, " MID Exposure")
             output[0].header['ASTLEVEL'] = 1
-            output[0].header['YOFFSET'] = reference_hdu.header.get('YOFFSET', 0)
+            output[0].header['YOFFSET'] = reference_hdu[0].header.get('YOFFSET', 0)
+            output[0].header['XOFFSET'] = reference_hdu[0].header.get('XOFFSET', 0)
 
             for i_index, image_name in enumerate(sub_images):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
