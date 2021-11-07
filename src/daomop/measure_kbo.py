@@ -309,7 +309,7 @@ def main(orbit=None, **kwargs):
             # Return empty set on VOSpace copy error.
             return {}
         images.append(image)
-    epoch = Time(fits.open(images[1])[0].header['DATE-AVG'], scale='tai').utc
+    epoch = Time(fits.open(images[len(images)//2])[0].header['DATE-AVG'], scale='tai').utc
 
     regions = f'{dbimages}/{pointing:05d}.reg'
     try:

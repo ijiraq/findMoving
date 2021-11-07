@@ -527,7 +527,7 @@ def main():
     ind = np.argsort(mjds)
     # sort the images by mjd
     images = numpy.array(new_images)[ind]
-
+    logging.info(f"Sorted list of {len(mjds)} dates.")
     # In debug mode just do three images or less if there aren't three
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
         num_of_images = min(6, len(images))
