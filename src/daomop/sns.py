@@ -131,8 +131,9 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     ccd_data = {}
     
     for image in hdus:
-        logging.info(f"Opening {image} to add to stack")
-        with fits.open(image, mode='update') as hdu:
+        # logging.info(f"Opening {image} to add to stack")
+        # with fits.open(image, mode='update') as hdu:
+            hdu = hdus[image]
             wcs_header = kwargs['astheads'][hdu[0].header['IMAGE']]
             # wcs_header = hdu[1].header.copy()
             dt = (mid_exposure_mjd(hdu[0]) - reference_date)
@@ -636,10 +637,10 @@ def main():
                         hduc[-1].header['YOFFSET'] = y1
                     astheads[image]['CRPIX1'] -= x1
                     astheads[image]['CRPIX2'] -= y1
-                    tt_file = tempfile.NamedTemporaryFile(delete=False)
-                    logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
-                    hduc.writeto(tt_file)
-                    chdus[tt_file] = hduc
+                    # tt_file = tempfile.NamedTemporaryFile(delete=False)
+                    # logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
+                    # hduc.writeto(tt_file)
+                    chdus[image] = hduc
             hdus = chdus
         hdus2 = {}
         # Remove from the list HDULists where there is no data left (after cutout)
@@ -653,7 +654,8 @@ def main():
             # mask pixels that are both high-variance AND part of a detected source.
             logging.info(f'Masking pixels in image whose variance exceeds {args.clip} times the median variance.')
             for key in hdus:
-                with fits.open(key, mode='update') as hdu:
+                # with fits.open(key, mode='update') as hdu:
+                    hdu = hdus[key]
                     if hdu[HSC_HDU_MAP['image']].header.get('CLIP', None) is not None:
                         continue
                     hdu[HSC_HDU_MAP['image']].header['CLIP'] = args.clip
@@ -676,7 +678,8 @@ def main():
         if args.mask:
             # set masked pixel to 'nan' before sending for stacking
             for key in hdus:
-                with fits.open(key, mode='update') as hdu:
+                # with fits.open(key, mode='update') as hdu:
+                    hdu = hdus[key]
                     if not hdu[HSC_HDU_MAP['image']].header.get('MASKED', False):
                         hdu[HSC_HDU_MAP['image']].data = mask_as_nan(hdu[HSC_HDU_MAP['image']].data,
                                                                      hdu[HSC_HDU_MAP['mask']].data)
