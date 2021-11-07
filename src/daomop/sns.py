@@ -491,27 +491,12 @@ def main():
     logging.info(f'Shift-and-Stacking the following list of rate/angle pairs: '
                  f'{[(rate["rate"],rate["angle"]) for rate in rates]}')
 
-
     logging.info(f'Loading all images matching pattern: {input_rerun}')
     images = np.array(get_image_list(input_rerun, args.exptype, ccd=args.ccd,
                                      visit=args.visit, filters=[args.pointing, args.filter]))
     if not len(images) > 0:
         raise OSError(f'No images found using {input_rerun}')
 
-    # check if there are astrometric headers to overwrite the WCS in the HDU
-    ast_path = os.path.join(input_rerun.replace('processCcdOutputs', 'diff').replace('diff', 'asthead'), 'mega')
-    astheads = {}
-    for image in images:
-        filename = os.path.basename(image)
-        ast_filename = os.path.join(ast_path, 
-                                    filename.replace('DIFFEXP', 'CORR').replace('.fits', '.mega.head'))
-        if os.access(ast_filename, os.R_OK):
-            astheads[filename] = fits.Header.fromtextfile(ast_filename)
-        else:
-            with fits.open(image) as hdu_list:
-                astheads[filename] = hdu_list[1].header
-            logging.warning(f"Failed to get astheader for {ast_filename} using {filename}")
-        
     # Organize images in MJD order.
     mjds = []
     logging.info(f"Sorting list of {len(images)} based on mjd")
@@ -561,6 +546,11 @@ def main():
             # with fits.open(image, mode='update') as hdulist:
             #    hdulist[0].header['IMAGE'] = os.path.basename(image)
             # hdus[image] = os.path.basename(image)
+
+        # make a dictionary of the astrometric headers.
+        astheads = {}
+        for image in sub_images:
+            astheads[image] = hdus[image][1].header
 
         if args.group:
             reference_idx = int(len(sub_images) // 2)
