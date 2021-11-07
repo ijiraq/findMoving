@@ -560,7 +560,7 @@ def main():
 
         if args.group:
             reference_idx = int(len(sub_images) // 2)
-            reference_image = images[reference_idx]
+            reference_image = sub_images[reference_idx]
             reference_hdu = hdus[reference_image]
             # reference_hdu = fits.open(sub_images[reference_idx])
         reference_filename = os.path.splitext(reference_hdu[0].header['IMAGE'])[0][0:]
