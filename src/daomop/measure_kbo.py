@@ -42,7 +42,7 @@ def start_ds9(name=DS9_NAME):
     while True:
         try:
             ds9 = pyds9.DS9(target=name)
-            time.sleep(3)
+            time.sleep(1)
             break
         except Exception as ex:
             if c > 10:
@@ -58,11 +58,7 @@ def start_ds9(name=DS9_NAME):
             ds9.set(f"{key.replace('_', ' ')} {setting[key]}")
     ds9.set("view panner yes")
     ds9.set("view magnifier yes")
-    ds9.set("width 2000")
-    ds9.set("height 1000")
     ds9.set('cmap 1.4 0.5')
-
-
     ds9.set("frame delete all")
     return ds9
 
@@ -126,8 +122,8 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
                         ds9.set('regions', circle)
                         break
             else:
-                ra1 = ra - dra*(obsdate-basedate).to('hour').value/3600.
-                dec1 = dec - ddec*(obsdate-basedate).to('hour').value/3600.0
+                ra1 = ra + dra*(obsdate-basedate).to('hour').value/3600.
+                dec1 = dec + ddec*(obsdate-basedate).to('hour').value/3600.0
                 uncertainty_ellipse = 3, 3, 0
                 colour = 'pink'
             colour = rejected and 'red' or colour
@@ -233,7 +229,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
             obs_mag_err = phot['MERR'][0]
 
         colour = "{blue}"
-        ds9.set('regions', f'image; circle {x} {y} 4 # color={colour}')
+        ds9.set('regions', f'image; circle {cen_x} {cen_y} 4 # color={colour}')
 
         obsdate = Time(Time(fits.open(image)[0].header['DATE-AVG'], scale='tai').utc,
                        format='mjd',
