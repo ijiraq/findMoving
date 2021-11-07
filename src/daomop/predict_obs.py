@@ -76,9 +76,9 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
         index += 1
         orbit.predict(epoch+1*units.hour)
         coord2 = orbit.coordinate
-        ra_rate = (coord2.ra - coord1.ra).to('arcsec')
-        dec_rate = (coord2.dec - coord1.dec).to('arcsec')
-        angle = -1*numpy.degrees(numpy.arctan2(dec_rate, numpy.fabs(ra_rate))).value
+        ra_rate = (coord2.ra - coord1.ra).to('arcsec').value
+        dec_rate = (coord2.dec - coord1.dec).to('arcsec').value
+        angle = numpy.rad2deg(numpy.arctan2(dec_rate, ra_rate))
         rate = (ra_rate**2 + dec_rate**2)**0.5
         track_rows.append([row['pointing'],
                            row['ccd'],
