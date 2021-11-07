@@ -85,7 +85,7 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
                            index,
                            0.00,
                            0.00,
-                           rate.value,
+                           rate,
                            angle,
                            0.00,
                            "UNKNOWN",
