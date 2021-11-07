@@ -322,7 +322,8 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             xp = int(min(image_array.shape[1], xo+section_size))
             stacks = {'image': [], 'variance': []}
             for filename in hdus:
-                with fits.open(filename) as hdu_list:
+                    # with fits.open(filename) as hdu_list:
+                    hdu_list = hdus[filename]
                     for extension in 'image', 'variance':
                         # compute the x and y shift for image at this time and scale the size of shift for the
                         # scaling factor of this shift.
