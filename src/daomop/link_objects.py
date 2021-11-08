@@ -65,6 +65,7 @@ def link(target, candidates):
             continue
         cand_prov_name = new_obs[0].provisional_name
 
+
         trial_obs = baseObservations + new_obs
         try:
             orbit = BKOrbit(trial_obs)
