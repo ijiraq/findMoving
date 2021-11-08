@@ -41,9 +41,11 @@ def link(target, candidates):
     # Load the observations of the target into a list.
     baseObservations = []
     nlinks = 0
-    with open(target) as fobj:
-        for line in fobj.readlines():
-            baseObservations.append(ObsRecord.from_string(line))
+    for obs in mp_ephem.EphemerisReader().read(target):
+        if obs.null_observation:
+            continue
+        baseObservations.append(obs)
+
     logging.debug(f"Retrieved {len(baseObservations)} for {target}")
     if not len(baseObservations) > 0:
         return -1
@@ -76,7 +78,7 @@ def link(target, candidates):
 
         # Check all the positions for goodness of fit
         for obs in orbit.observations:
-            if obs.ra_residual > 0.2 or obs.dec_residual > 0.2:
+            if obs.ra_residual**2 + obs.dec_residual**2 > 0.2**2:
                 linkable_candidate = False
 
         if not linkable_candidate:
