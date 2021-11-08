@@ -465,7 +465,8 @@ def main():
     parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level))
+    logging.basicConfig(level=getattr(logging, args.log_level),
+                        format="%(asctime)s :: %(levelname)s :: %(module)s.%(funcName)s:%(lineno)d %(message)s")
 
     reruns = args.rerun[0].split(":")
     if len(reruns) > 2:

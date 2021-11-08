@@ -42,7 +42,7 @@ def start_ds9(name=DS9_NAME):
     while True:
         try:
             ds9 = pyds9.DS9(target=name)
-            time.sleep(1)
+            time.sleep(2)
             break
         except Exception as ex:
             if c > 10:
@@ -115,8 +115,8 @@ def load_images(images, ra, dec, wcs_dict, orbit=None, dra=None, ddec=None,
                                        orbit.pa.to('degree').value + 90)
                 colour = 'green'
                 for obs in orbit.observations:
-                    record_index = obs.date.mpc[0:14]
-                    if record_index == obsdate.mpc[0:14]:
+                    record_index = obs.date.mpc[0:13]
+                    if record_index == obsdate.mpc[0:13]:
                         colour = not obs.null_observation and 'cyan' or 'red'
                         circle = f'icrs; circle({obs.coordinate.ra.degree}d,{obs.coordinate.dec.degree}d,5p) # color={colour}'
                         ds9.set('regions', circle)
@@ -243,7 +243,7 @@ def measure_image(p_name, images, wcs_dict, discovery=False, target=DS9_NAME, zp
             logging.warning(ex)
             logging.warning(f"Got: {ra},{dec}")
 
-        record_key = obsdate[0:14]
+        record_key = obsdate[0:13]
         null_obs = key in ['r', 'b']
         obs[record_key] = Observation(null_observation=null_obs, provisional_name=p_name,
                                       comment="{} {} {}".format(*util.from_provisional_name(p_name)), note1=note1, note2='C',
@@ -355,7 +355,7 @@ def _main(**kwargs):
             return
         logging.warning(f"{ast_filename} exists, appending new measures.")
         for ob in list(EphemerisReader().read(ast_filename)):
-            record_index = ob.date.mpc[0:14]
+            record_index = ob.date.mpc[0:13]
             obs[record_index] = ob
         try:
             kwargs['orbit'] = BKOrbit(None, ast_filename=ast_filename)

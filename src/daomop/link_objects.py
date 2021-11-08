@@ -55,15 +55,13 @@ def link(target, candidates):
         logging.debug(f"Attempting to link {filename}")
         new_obs = []
         linkable_candidate = True
-        with open(filename) as fobj:
-            for line in fobj.readlines():
-                obs = ObsRecord.from_string(line)
-                if obs.null_observation:
-                    logging.debug("Not keeping NULL observations.")
-                    continue
-                new_obs.append(obs)
+        for ob in mp_ephem.EphemerisReader().read(filename):
+            if ob.null_observation:
+                continue
+            new_obs.append(ob)
         if not len(new_obs) > 0:
             continue
+        cand_prov_name = new_obs[0].provisional_name
 
         trial_obs = baseObservations + new_obs
         try:
@@ -90,10 +88,10 @@ def link(target, candidates):
             continue
 
         if linkable_candidate:
-            print(f"{target} + {filename}")
+            print(f"{target} + {filename} ({cand_prov_name})")
             print(orbit.summarize())
             nlinks += 1
-            with open(f"{os.path.splitext(target)[0]}_{os.path.splitext(filename)[0]}.mpc", 'w') as fobj:
+            with open(f"{os.path.splitext(target)[0]}_{cand_prov_name}.mpc", 'w') as fobj:
                 for obs in orbit.observations:
                     fobj.write(obs.to_string()+'\n')
 
