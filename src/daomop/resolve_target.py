@@ -20,6 +20,7 @@ import math
 import os
 import re
 from io import BytesIO
+from . import util
 
 import numpy
 import vos
@@ -27,7 +28,9 @@ from astropy.io import fits
 from astropy.table import Table
 from astropy.wcs import WCS
 
-OUTPUT_COLUMNS = ["pointing", "chip", "index",   "x",   "y", "rate", "angle",  "mag", "stack", "ra",  "dec", "nstk"]
+OUTPUT_COLUMNS = ["pointing", "chip", "index",   "x",   "y", "rate", "angle",  "mag", "stack", "ra",  "dec", "nstk",
+                  "name", "epoch", "dra", "ddec"]
+
 OUTPUT_COLUMN_FMT = {'pointing': '05d',
                      'chip': '03d',
                      'index': '03d',
@@ -39,10 +42,16 @@ OUTPUT_COLUMN_FMT = {'pointing': '05d',
                      'stack': '>50s',
                      'ra': '10.5f',
                      'dec': '10.5f',
-                     'nstk': '3d'}
+                     'nstk': '3d',
+                     'name': '10s',
+                     'epoch': '12.5f',
+                     'dra': '8.2f',
+                     'ddec': '8.2f' }
 
-RESOLVED_COLUMN_NAMES = ['stack', 'ra', 'dec', 'nstk']
-RESOLVED_COLUMN_FILL = {'stack': ' '*50, 'ra': 0., 'dec': 0., 'nstk': 0}
+RESOLVED_COLUMN_NAMES = ['stack', 'ra', 'dec', 'nstk', 'mag', 'name', 'epoch', 'dra', 'ddec']
+RESOLVED_COLUMN_FILL = {'stack': ' '*50, 'ra': 0., 'dec': 0., 'nstk': 3, 'mag': -1,
+                        'name': 'XXXXXXXX', 'dra': 5/3600.0, 'ddec': 5/3600.0,
+                        'epoch': -1}
 
 CUTOUT = "[1][1:1,1:1]"
 
@@ -106,12 +115,16 @@ def resolve(pointing, chip, rate, angle, x, y, vos_basedir):
         fobj = BytesIO(client.open(uri, cutout=CUTOUT, view='cutout').read())
         with fits.open(fobj) as hdu:
             ra, dec = WCS(hdu[0].header).all_pix2world(x, y, 1)
+        fobj = BytesIO(client.open(uri, cutout='[0]', view='cutout').read())
+        with fits.open(fobj) as hdu:
+            epoch = hdu[0].header.get('MIDMJD', hdu[0].header.get('MJD-STR', -1.0))
+
     except Exception as ex:
         logging.error("Failed while measuring {pointing} {chip} {x} {y} on {stack}")
         logging.error("{ex}")
         return None
 
-    return {'stack': stack_image, 'ra': ra, 'dec': dec}
+    return {'stack': stack_image, 'ra': ra, 'dec': dec, 'epoch': epoch}
 
 
 def main():
@@ -172,6 +185,7 @@ def main():
 
             if result is None:
                 continue
+            row['name'] = util.get_provisional_name(row['pointing'], row['chip'], row['index'])
             for colname in result:
                 row[colname] = result[colname]
         except Exception as ex:
