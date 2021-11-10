@@ -51,13 +51,13 @@ OUTPUT_COLUMN_FMT = {'pointing': '05d',
 RESOLVED_COLUMN_NAMES = ['stack', 'ra', 'dec', 'nstk', 'mag', 'name', 'epoch', 'dra', 'ddec']
 RESOLVED_COLUMN_FILL = {'stack': ' '*50, 'ra': 0., 'dec': 0., 'nstk': 3, 'mag': -1,
                         'name': 'XXXXXXXX', 'dra': 5/3600.0, 'ddec': 5/3600.0,
-                        'epoch': -1}
+                        'epoch': -555555.555555}
 
 CUTOUT = "[1][1:1,1:1]"
 
 
 STACK_PATTERN = re.compile(
-    r"STACK-(?P<visit>\d{6,7})-(?P<chip>\d{3})(_masked)?-00-(?P<rate>[+-]\d{2}.\d{2})-(?P<angle>[+-]\d{2}.\d{2}).fits.fz")
+    r"STACK-(?P<visit>\d{6,7})-(?P<chip>\d{3})(_masked)?-01-(?P<rate>[+-]\d{2}.\d{2})-(?P<angle>[+-]\d{2}.\d{2}).fits.fz")
 
 
 def resolve(pointing, chip, rate, angle, x, y, vos_basedir):
