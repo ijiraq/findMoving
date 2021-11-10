@@ -53,7 +53,6 @@ STACK_MASK = (2**LSST_MASK_BITS['EDGE'],
               2**LSST_MASK_BITS['REJECTED'])
 
 
-
 def _weighted_quantile(values, quantile, sample_weight):
     """ Very close to numpy.percentile, but supports weights.
     Always overwrite=True, works on arrays with nans.

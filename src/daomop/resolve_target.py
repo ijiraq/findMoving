@@ -51,13 +51,13 @@ OUTPUT_COLUMN_FMT = {'pointing': '05d',
 RESOLVED_COLUMN_NAMES = ['stack', 'ra', 'dec', 'nstk', 'mag', 'name', 'epoch', 'dra', 'ddec']
 RESOLVED_COLUMN_FILL = {'stack': ' '*50, 'ra': 0., 'dec': 0., 'nstk': 3, 'mag': -1,
                         'name': 'XXXXXXXX', 'dra': 5/3600.0, 'ddec': 5/3600.0,
-                        'epoch': -555555.555555}
+                        'epoch': -55555.555555}
 
 CUTOUT = "[1][1:1,1:1]"
 
 
 STACK_PATTERN = re.compile(
-    r"STACK-(?P<visit>\d{6,7})-(?P<chip>\d{3})(_masked)?-01-(?P<rate>[+-]\d{2}.\d{2})-(?P<angle>[+-]\d{2}.\d{2}).fits.fz")
+    r"STACK-(?P<visit>\d{6,7})-(?P<chip>\d{3})(_masked)?-00-(?P<rate>[+-]\d{2}.\d{2})-(?P<angle>[+-]\d{2}.\d{2}).fits.fz")
 
 
 def resolve(pointing, chip, rate, angle, x, y, vos_basedir):
@@ -87,11 +87,12 @@ def resolve(pointing, chip, rate, angle, x, y, vos_basedir):
         stack_angle = stack_rate = 0
         try:
             match = STACK_PATTERN.search(stack)
-            stack_rate = float(match.group('rate'))
-            stack_angle = float(match.group('angle'))
+            if match is not None:
+                stack_rate = float(match.group('rate'))
+                stack_angle = float(match.group('angle'))
         except Exception as ex:
             # logging.debug(f"Failed to match {stack}\n")
-            # logging.debug(str(ex))
+            logging.error(str(ex))
             continue
         # use cos/sin rule to compute vector difference between requested rate and stack rate.
         da = math.radians(math.fabs(stack_angle-angle))
@@ -101,6 +102,8 @@ def resolve(pointing, chip, rate, angle, x, y, vos_basedir):
             min_offset = dr
             min_idx = idx
     if min_idx is None:
+        logging.error(f"No match for {pointing} {chip} {rate} {angle} {x} {y}")
+        logging.error(f"Checked: {stacks} in {stack_dir_uri}")
         return None
     # Found the STACK in the VOSpace storage area that matches the pointing/chip/rate/angle of interest.
     # Now pull the 'cutout' with the WCS and compute the RA/DEC from the x/y location.
