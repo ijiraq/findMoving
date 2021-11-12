@@ -137,7 +137,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
             # wcs_header = hdu[1].header.copy()
             dt = (mid_exposure_mjd(hdu[0]) - reference_date)
             if rate is not None:
-                wcs_header['CRVAL1'] -= (rate['dra'] * dt).to('degree').value
+                wcs_header['CRVAL1'] -= (rate['dra'] * dt).to('degree').value*numpy.cos(numpy.deg2rad(wcs_header['CRVAL2']))
                 wcs_header['CRVAL2'] -= (rate['ddec'] * dt).to('degree').value
             for layer in hdu_idx:
                 data = hdu[hdu_idx[layer]].data
