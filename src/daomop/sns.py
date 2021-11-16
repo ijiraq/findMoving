@@ -559,7 +559,12 @@ def main():
             astheads[image] = hdus[image][1].header
 
         if args.group:
-            reference_idx = int(len(sub_images) // 2)
+            if index == 1:
+                reference_idx = 0
+            elif index == args.n_sub_stacks-1:
+                reference_idx = -1
+            else:
+                reference_idx = int(len(sub_images) // 2)
             reference_image = sub_images[reference_idx]
             reference_hdu = hdus[reference_image]
             # reference_hdu = fits.open(sub_images[reference_idx])
