@@ -33,10 +33,12 @@ setup(
     package_data={'daomop': ['*.json']},
     entry_points={
         "console_scripts": [
+            "daomop-review-ast = daomop.measure_from_ast:run",
             "daomop-sns = daomop.sns:main",
             "daomop-predict-obs = daomop.predict_obs:run",
             "daomop-measure = daomop.measure_kbo:run",
             "daomop-measure-orbit = daomop.measure_from_orbit:run",
+            "daomop-measure-ast = daomop.measure_from_ast:run",
             "daomop-train-cnn = daomop.train_model:main",
             "daomop-build-plant-db = daomop.build_plant_list_db:main",
             "daomop-intelligentMasker = daomop.intelligentMasker:main",
