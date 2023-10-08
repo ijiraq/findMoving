@@ -92,9 +92,12 @@ def from_provisional_name(p_name):
         index = int(f'0{p_name[3:]}', base=16)
         ccd = None
     else:
-        _value = str(int(f'0x{p_name[-4:]}', base=16)).rjust(5, '0')
+        _value = str(int(f'0x{p_name[3:]}', base=16)).rjust(5, '0')
         ccd = int(_value[0:3])
         index = int(_value[3:])
+        if ccd > 103:
+            ccd = int(_value[0:2])
+            index = int(_value[2:])
 
     pointing = ((string.digits + string.ascii_uppercase).find(p_name[0])+5) * 100 + int(p_name[1:3])
 
