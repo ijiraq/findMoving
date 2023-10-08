@@ -16,9 +16,9 @@ from mp_ephem.ephem import Observation
 from vos import Client, version
 import time
 
-from . import daophot
-from . import settings
-from . import util
+from daomop import daophot
+from daomop import settings
+from daomop import util
 
 config = settings.AppConfig()
 DS9_NAME = 'validate'
@@ -60,6 +60,7 @@ def start_ds9(name=DS9_NAME):
     ds9.set("view magnifier yes")
     ds9.set('cmap 1.4 0.5')
     ds9.set("frame delete all")
+    print("DS9 Started")
     return ds9
 
 
@@ -292,6 +293,10 @@ def main(orbit=None, **kwargs):
         expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{idx}'
         image = f'{expnum}p{chip:02d}.fits'
         url = f'{dbimages}/{pointing:05d}/{chip:03d}/{index:04d}/{image}'
+        import glob
+        flist = glob.glob(f'{dbimages}/{pointing:05d}/{chip:03d}/{index:04d}/*{idx}p*.fits')
+        logging.info(f'Found these exposures: {flist}')
+        url = flist[0]
         logging.info(f"Looking for image at {url}")
         try:
             if os.access(url, os.R_OK):
@@ -386,6 +391,7 @@ def _main(**kwargs):
         orbit = BKOrbit(None, ast_filename=ast_filename)
         logging.info(orbit.summarize())
     except Exception as ex:
+        logging.error(f"Error Fitting Orbit")
         logging.error(f"{ex}")
 
 
@@ -422,6 +428,7 @@ def main_list(**kwargs):
     :return:
     """
     t = Table.read(kwargs['detections'], format='ascii')
+    print(t.colnames)
     if kwargs['chip'] is not None:
         t = t[t['chip'] == kwargs['chip']]
     logging.debug(f"read table of len {len(t)} with columns {t.colnames}")
@@ -492,13 +499,15 @@ def run():
     logging.basicConfig(level=getattr(logging, args.log_level))
     logging.info(f"Using vos:{version.version}")
 
+
     try:
-        start_ds9()
+        ds9 = start_ds9()
         try:
             args.func(**vars(args))
         finally:
             stop_ds9()
     except Exception as ex:
+        logging.error('ds9 error')
         logging.error({ex})
 
 
