@@ -44,13 +44,12 @@ LSST_MASK_BITS = {'BAD': 0,
 
 HSC_HDU_MAP = {'circumstance': 0, 'image': 1, 'mask': 2, 'variance': 3, 'weight': 3}
 
-
-STACK_MASK = (2**LSST_MASK_BITS['EDGE'],
-              2**LSST_MASK_BITS['NO_DATA'],
-              2**LSST_MASK_BITS['BRIGHT_OBJECT'],
-              2**LSST_MASK_BITS['SAT'],
-              2**LSST_MASK_BITS['INTRP'],
-              2**LSST_MASK_BITS['REJECTED'])
+STACK_MASK = (2 ** LSST_MASK_BITS['EDGE'],
+              2 ** LSST_MASK_BITS['NO_DATA'],
+              2 ** LSST_MASK_BITS['BRIGHT_OBJECT'],
+              2 ** LSST_MASK_BITS['SAT'],
+              2 ** LSST_MASK_BITS['INTRP'],
+              2 ** LSST_MASK_BITS['REJECTED'])
 
 
 def _weighted_quantile(values, quantile, sample_weight):
@@ -128,35 +127,36 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     stack_input = {}
     logging.info(f'stacking at rate/angle set: {rate}')
     ccd_data = {}
-    
+
     for image in hdus:
         # logging.info(f"Opening {image} to add to stack")
         # with fits.open(image, mode='update') as hdu:
-            hdu = hdus[image]
-            wcs_header = kwargs['astheads'][hdu[0].header['IMAGE']]
-            # wcs_header = hdu[1].header.copy()
-            dt = (mid_exposure_mjd(hdu[0]) - reference_date)
-            if rate is not None:
-                wcs_header['CRVAL1'] -= (rate['dra'] * dt).to('degree').value*numpy.cos(numpy.deg2rad(wcs_header['CRVAL2']))
-                wcs_header['CRVAL2'] -= (rate['ddec'] * dt).to('degree').value
-            for layer in hdu_idx:
-                data = hdu[hdu_idx[layer]].data
-                if layer == 'variance':
-                    data = VarianceUncertainty(data)
-                elif layer == 'mask':
-                    data = bitfield_to_boolean_mask(data, ignore_flags=STACK_MASK, flip_bits=True)
-                ccd_data[layer] = data
-            logging.info(f'Adding {hdu[0].header["IMAGE"]} to projected stack.')
-            # reference_header = referece_hdu[1].header
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=RuntimeWarning)
-                stack_input[image] = wcs_project(CCDData(ccd_data['image'],
-                                                         mask=ccd_data['mask'],
-                                                         header=wcs_header,
-                                                         wcs=WCS(wcs_header),
-                                                         unit='adu',
-                                                         uncertainty=ccd_data['variance']),
-                                                 reference_wcs)
+        hdu = hdus[image]
+        wcs_header = kwargs['astheads'][hdu[0].header['IMAGE']]
+        # wcs_header = hdu[1].header.copy()
+        dt = (mid_exposure_mjd(hdu[0]) - reference_date)
+        if rate is not None:
+            wcs_header['CRVAL1'] -= (rate['dra'] * dt).to('degree').value * numpy.cos(
+                numpy.deg2rad(wcs_header['CRVAL2']))
+            wcs_header['CRVAL2'] -= (rate['ddec'] * dt).to('degree').value
+        for layer in hdu_idx:
+            data = hdu[hdu_idx[layer]].data
+            if layer == 'variance':
+                data = VarianceUncertainty(data)
+            elif layer == 'mask':
+                data = bitfield_to_boolean_mask(data, ignore_flags=STACK_MASK, flip_bits=True)
+            ccd_data[layer] = data
+        logging.info(f'Adding {hdu[0].header["IMAGE"]} to projected stack.')
+        # reference_header = referece_hdu[1].header
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            stack_input[image] = wcs_project(CCDData(ccd_data['image'],
+                                                     mask=ccd_data['mask'],
+                                                     header=wcs_header,
+                                                     wcs=WCS(wcs_header),
+                                                     unit='adu',
+                                                     uncertainty=ccd_data['variance']),
+                                             reference_wcs)
 
     if rate is not None:
         combiner = Combiner(stack_input.values())
@@ -180,8 +180,8 @@ def down_sample_2d(inp, fr):
 
     :return numpy.ndarray
     """
-    new_shape = inp.shape[0]//fr, inp.shape[1]//fr
-    fr = inp.shape[0]//new_shape[0], inp.shape[1]//new_shape[1]
+    new_shape = inp.shape[0] // fr, inp.shape[1] // fr
+    fr = inp.shape[0] // new_shape[0], inp.shape[1] // new_shape[1]
     result = inp.reshape((new_shape[0], fr[0], new_shape[1], fr[1])).mean(axis=(-1, 1))
     return result
 
@@ -202,23 +202,23 @@ def frameid(hdu):
 def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
     logging.debug(f'Compute x/y shifts from : {rx},{ry} scaled by {rf} and mid_mjd: {mid_mjd}')
     w = WCS(hdu[1].header)
-    dra = (rx*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
-    ddec = (ry*(mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
+    dra = (rx * (mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
+    ddec = (ry * (mid_exposure_mjd(hdu[0]) - mid_mjd)).decompose()
     logging.debug(f'Working on array {hdu[0]} of size '
                   f'{hdu[1].data.shape} and shifting by '
                   f'dx {dra} and dy {ddec}')
     sky_coord = get_centre_coord(hdu)
     # Add offset needed to align the corner of the image with the reference image.
-    dra += (ref_skycoord[0] - sky_coord[0])*units.degree
-    ddec += (ref_skycoord[1] - sky_coord[1])*units.degree
+    dra += (ref_skycoord[0] - sky_coord[0]) * units.degree
+    ddec += (ref_skycoord[1] - sky_coord[1]) * units.degree
     try:
         _x, _y = w.wcs_world2pix(sky_coord[0], sky_coord[1], 0)
         c1 = _x, _y
-        _x, _y = w.wcs_world2pix(sky_coord[0]+dra.to('degree').value,
-                                 sky_coord[1]+ddec.to('degree').value, 0)
+        _x, _y = w.wcs_world2pix(sky_coord[0] + dra.to('degree').value,
+                                 sky_coord[1] + ddec.to('degree').value, 0)
         c2 = _x, _y
-        dx = (rf*(c2[0]-c1[0]))
-        dy = (rf*(c2[1]-c1[1]))
+        dx = (rf * (c2[0] - c1[0]))
+        dy = (rf * (c2[1] - c1[1]))
     except Exception as ex:
         logging.warning(ex)
         return None, None
@@ -237,8 +237,8 @@ def get_centre_coord(hdulist):
     :return: Central RA/DEC coordinate in COOSYS of the primary WCS.
     :rtype: SkyCoord
     """
-    xc = hdulist[1].data.shape[1]/2.0
-    yc = hdulist[1].data.shape[0]/2.0
+    xc = hdulist[1].data.shape[1] / 2.0
+    yc = hdulist[1].data.shape[0] / 2.0
     sky_ra, sky_dec = WCS(hdulist[1].header).wcs_pix2world(xc, yc, 0)
     sky_coord = sky_ra, sky_dec
     logging.debug(f'Centre of the CCD is {sky_coord}')
@@ -315,73 +315,77 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
         # but we need y1,y2 range of data to come from input to allow for 
         # shifting of pixel boundaries.
         yo = int(yo)
-        yp = int(min(image_array.shape[0], yo+section_size))
+        yp = int(min(image_array.shape[0], yo + section_size))
         for xo in x_section_grid:
             xo = int(xo)
-            xp = int(min(image_array.shape[1], xo+section_size))
+            xp = int(min(image_array.shape[1], xo + section_size))
             stacks = {'image': [], 'variance': []}
             for filename in hdus:
-                    # with fits.open(filename) as hdu_list:
-                    hdu_list = hdus[filename]
-                    for extension in 'image', 'variance':
-                        # compute the x and y shift for image at this time and scale the size of shift for the
-                        # scaling factor of this shift.
-                        logging.debug(f'Adding exposure taken at {mid_exposure_mjd(hdu_list[HSC_HDU_MAP["circumstance"]]).isot} '
-                                      f'reference from {mid_mjd.isot}')
-                        dx, dy = compute_offset(hdu_list, rx, ry, 1, mid_mjd, ref_skycoord)
-                        # x/y boundaries of cutout from this image must be shifted to account for object motion.
-                        # We reduce the {x,y}1 and increase the {x,y}2 boundaries by rf to allow expanding 1/rf
-                        # sub-pixel shifting.
-                        logging.debug(f"Shifting by integer amount of {dx}, {dy}")
-                        logging.debug(f"Lower / upper y bounds: {yo+dy-1},{yp+dy+1}")
-                        logging.debug(f"Lower / upper x bounds: {xo+dx-1},{xp+dx+1}")
-                        y1 = int(max(0, yo+dy-1))
-                        x1 = int(max(0, xo+dx-1))
-                        y2 = int(min(hdu_list[HSC_HDU_MAP[extension]].data.shape[0], yp+dy+1))
-                        x2 = int(min(hdu_list[HSC_HDU_MAP[extension]].data.shape[1], xp+dx+1))
-                        if y2 < y1 or x2 < x1:
-                            logging.warning(f"rate shifted off Frame {filename} section {xo,yo}")
-                            continue
-                        logging.debug(f"Getting {y1}:{y2},{x1}:{x2} from {filename}")
-                        sample_offset = ((rf * (y1 - int((yo + dy - 1))), rf * (y2 - int((yo + dy - 1)))),
-                                         (rf * (x1 - int((xo + dx - 1))), rf * (x2 - int((xo + dx - 1)))))
-                        logging.debug(f"Placing into {sample_offset}")
-                        data = hdu_list[HSC_HDU_MAP[extension]].data[y1:y2, x1:x2]
-                        logging.debug(f"Got data shape: {data.shape} from {filename}")
-                        rep = np.repeat(np.repeat(data, rf, axis=0),
-                                        rf, axis=1)
-                        logging.debug(f"Now shape: {rep.shape} after {rf} scale up")
-                        # Create a holding array of the correct size for full section at rep:
-                        hold_array = np.empty((((yp-yo)+2)*rf, (xp-xo+2)*rf))
-                        hold_array.fill(np.nan)
-                        logging.debug(f"Created holding array of size: {hold_array.shape}")
-                        hold_array[sample_offset[0][0]:sample_offset[0][1], sample_offset[1][0]:sample_offset[1][1]] = rep
-                        logging.debug(f"Got {numpy.isnan(hold_array).sum()} nans and {(~numpy.isnan(hold_array)).sum()} not nan")
-                        # Using the remapped array we can make the floating point part of the dx/dy shifts
-                        # but still as integers, this time with rf bigger pixels.
-                        dy_rep = (dy - int(dy)) * rf
-                        dx_rep = (dx - int(dx)) * rf
-                        logging.debug(f"tweaking by integer amount of {dx_rep},{dy_rep}")
-                        # Now we have the oversampled array where does it go in our destination?
-                        remap_array(hold_array, dx_rep, dy_rep)
-                        logging.debug(f"remap {numpy.isnan(hold_array).sum()} nans and {(~numpy.isnan(hold_array)).sum()} not nan")
-                        hold_array = hold_array[3:-3, 3:-3]
-                        logging.debug(f"trimmed {numpy.isnan(hold_array).sum()} nans and {(~numpy.isnan(hold_array)).sum()} not nan")
-                        stacks[extension].append(hold_array)
-                        logging.debug("Data from shape {} has been sampled into shape {}".format(
-                            hdu_list[HSC_HDU_MAP['image']].data[y1:y2, x1:x2].shape, hold_array.shape))
+                # with fits.open(filename) as hdu_list:
+                hdu_list = hdus[filename]
+                for extension in 'image', 'variance':
+                    # compute the x and y shift for image at this time and scale the size of shift for the
+                    # scaling factor of this shift.
+                    logging.debug(
+                        f'Adding exposure taken at {mid_exposure_mjd(hdu_list[HSC_HDU_MAP["circumstance"]]).isot} '
+                        f'reference from {mid_mjd.isot}')
+                    dx, dy = compute_offset(hdu_list, rx, ry, 1, mid_mjd, ref_skycoord)
+                    # x/y boundaries of cutout from this image must be shifted to account for object motion.
+                    # We reduce the {x,y}1 and increase the {x,y}2 boundaries by rf to allow expanding 1/rf
+                    # sub-pixel shifting.
+                    logging.debug(f"Shifting by integer amount of {dx}, {dy}")
+                    logging.debug(f"Lower / upper y bounds: {yo + dy - 1},{yp + dy + 1}")
+                    logging.debug(f"Lower / upper x bounds: {xo + dx - 1},{xp + dx + 1}")
+                    y1 = int(max(0, yo + dy - 1))
+                    x1 = int(max(0, xo + dx - 1))
+                    y2 = int(min(hdu_list[HSC_HDU_MAP[extension]].data.shape[0], yp + dy + 1))
+                    x2 = int(min(hdu_list[HSC_HDU_MAP[extension]].data.shape[1], xp + dx + 1))
+                    if y2 < y1 or x2 < x1:
+                        logging.warning(f"rate shifted off Frame {filename} section {xo, yo}")
+                        continue
+                    logging.debug(f"Getting {y1}:{y2},{x1}:{x2} from {filename}")
+                    sample_offset = ((rf * (y1 - int((yo + dy - 1))), rf * (y2 - int((yo + dy - 1)))),
+                                     (rf * (x1 - int((xo + dx - 1))), rf * (x2 - int((xo + dx - 1)))))
+                    logging.debug(f"Placing into {sample_offset}")
+                    data = hdu_list[HSC_HDU_MAP[extension]].data[y1:y2, x1:x2]
+                    logging.debug(f"Got data shape: {data.shape} from {filename}")
+                    rep = np.repeat(np.repeat(data, rf, axis=0),
+                                    rf, axis=1)
+                    logging.debug(f"Now shape: {rep.shape} after {rf} scale up")
+                    # Create a holding array of the correct size for full section at rep:
+                    hold_array = np.empty((((yp - yo) + 2) * rf, (xp - xo + 2) * rf))
+                    hold_array.fill(np.nan)
+                    logging.debug(f"Created holding array of size: {hold_array.shape}")
+                    hold_array[sample_offset[0][0]:sample_offset[0][1], sample_offset[1][0]:sample_offset[1][1]] = rep
+                    logging.debug(
+                        f"Got {numpy.isnan(hold_array).sum()} nans and {(~numpy.isnan(hold_array)).sum()} not nan")
+                    # Using the remapped array we can make the floating point part of the dx/dy shifts
+                    # but still as integers, this time with rf bigger pixels.
+                    dy_rep = (dy - int(dy)) * rf
+                    dx_rep = (dx - int(dx)) * rf
+                    logging.debug(f"tweaking by integer amount of {dx_rep},{dy_rep}")
+                    # Now we have the oversampled array where does it go in our destination?
+                    remap_array(hold_array, dx_rep, dy_rep)
+                    logging.debug(
+                        f"remap {numpy.isnan(hold_array).sum()} nans and {(~numpy.isnan(hold_array)).sum()} not nan")
+                    hold_array = hold_array[3:-3, 3:-3]
+                    logging.debug(
+                        f"trimmed {numpy.isnan(hold_array).sum()} nans and {(~numpy.isnan(hold_array)).sum()} not nan")
+                    stacks[extension].append(hold_array)
+                    logging.debug("Data from shape {} has been sampled into shape {}".format(
+                        hdu_list[HSC_HDU_MAP['image']].data[y1:y2, x1:x2].shape, hold_array.shape))
 
             outs = np.array(stacks['image'])
             variances = np.array(stacks['variance'])
             num_frames = numpy.sum(~numpy.isnan(outs), axis=0)
-            logging.debug(f'num_frames: {num_frames[num_frames>0]}')
+            logging.debug(f'num_frames: {num_frames[num_frames > 0]}')
             logging.debug(f'Stacking {len(outs)} images of shape {outs[0].shape}')
             logging.info(f'Combining shifted pixels using {stacking_mode}')
             if stacking_mode == STACKING_MODES['WEIGHTED_MEDIAN']:
                 logging.info(f'computing weighted quantile: {0.5001}')
                 sorter = np.argsort(outs, axis=0)
                 outs = numpy.take_along_axis(outs, sorter, axis=0)
-                variances = 1./variances
+                variances = 1. / variances
                 variances = numpy.take_along_axis(variances, sorter, axis=0)
                 del sorter
                 # check for inf weights, and remove
@@ -397,7 +401,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
                 del outs
             logging.info("combined finished.")
             logging.debug(f'Setting variance to mean variance / N frames')
-            stacked_variance = STACKING_MODES['MEAN'](variances, axis=0)/num_frames
+            stacked_variance = STACKING_MODES['MEAN'](variances, axis=0) / num_frames
             del variances
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
@@ -429,10 +433,9 @@ def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
 
 
 def mid_exposure_mjd(hdu):
-
     mjd_start = time.Time(hdu.header['MJD-STR'], format='mjd').utc
     mjd_end = time.Time(hdu.header['MJD-END'], format='mjd').utc
-    return mjd_start + (mjd_end - mjd_start)/2.0
+    return mjd_start + (mjd_end - mjd_start) / 2.0
 
 
 def main():
@@ -474,11 +477,6 @@ def main():
     input_rerun, output_rerun = util.parse_rerun(args.basedir, args.rerun)
 
     output_dir = os.path.join(output_rerun, args.exptype, args.pointing, args.filter)
-    arc_dir = os.path.join("arc:projects/NewHorizons/DATA/HSC/rerun/sns_weighted/",
-                           args.exptype,
-                           args.pointing,
-                           args.filter)
-
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f'Writing results to {output_dir}')
 
@@ -490,7 +488,7 @@ def main():
     rates = shift_rates(args.rate_min, args.rate_max, args.rate_step,
                         args.angle_min, args.angle_max, args.angle_step)
     logging.info(f'Shift-and-Stacking the following list of rate/angle pairs: '
-                 f'{[(rate["rate"],rate["angle"]) for rate in rates]}')
+                 f'{[(rate["rate"], rate["angle"]) for rate in rates]}')
 
     logging.info(f'Loading all images matching pattern: {input_rerun}')
     images = np.array(get_image_list(input_rerun, args.exptype, ccd=args.ccd,
@@ -522,7 +520,7 @@ def main():
     # In debug mode just do three images or less if there aren't three
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
         num_of_images = min(6, len(images))
-        stride = max(1, int(len(images)/num_of_images-1))
+        stride = max(1, int(len(images) / num_of_images - 1))
         logging.debug(f'Selecting every {stride}th images, for total of {num_of_images}')
         images = images[::stride]
 
@@ -540,9 +538,9 @@ def main():
             # reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         else:
             # group images by time
-            start_idx = len(images)//args.n_sub_stacks*index
+            start_idx = len(images) // args.n_sub_stacks * index
             start_idx = int(max(0, start_idx))
-            end_idx = len(images)//args.n_sub_stacks*(index+1)
+            end_idx = len(images) // args.n_sub_stacks * (index + 1)
             end_idx = int(min(len(images), end_idx))
             sub_images = images[start_idx:end_idx]
 
@@ -587,64 +585,64 @@ def main():
                 # hdus.close()
 
         if args.centre is not None:
-            box_size = args.section_size//2
+            box_size = args.section_size // 2
             chdus = {}
             centre = None
             for key in hdus:
                 # with fits.open(key) as hdul:
-                    hdul = hdus[key]
-                    image = key
-                    # image = hdul[0].header['IMAGE']
-                    if centre is None:
-                        # make the center of cutouts the RA/DEC given but offset for epoch of RA/DEC and middle rate of motion.
-                        centre_epoch = time.Time(args.centre[2], format='mjd').utc
-                        mid_rates = rates[len(rates) // 2]
-                        ra_rate = mid_rates["rate"] * numpy.cos(numpy.deg2rad(mid_rates["angle"]))/3600.0
-                        dec_rate = mid_rates["rate"] * numpy.sin(numpy.deg2rad(mid_rates["angle"]))/3600.0
-                        reference_date = mid_exposure_mjd(reference_hdu[0])
-                        dt = (reference_date - centre_epoch).to('hour').value
-                        dra = ra_rate*dt
-                        ddec = dec_rate*dt
-                        dec_centre = args.centre[1]+ddec
-                        ra_centre = args.centre[0]+dra*numpy.cos(numpy.deg2rad(dec_centre))
-                        centre = SkyCoord(ra_centre, dec_centre, unit='degree')
-                        logging.info(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
-                    # hduc = fits.HDUList()
-                    # hduc.append(fits.PrimaryHDU(header=hdul[0].header))
-                    w = WCS(astheads[image])
+                hdul = hdus[key]
+                image = key
+                # image = hdul[0].header['IMAGE']
+                if centre is None:
+                    # make the center of cutouts the RA/DEC given but offset for epoch of
+                    # RA/DEC and middle rate of motion.
+                    centre_epoch = time.Time(args.centre[2], format='mjd').utc
+                    mid_rates = rates[len(rates) // 2]
+                    ra_rate = mid_rates["rate"] * numpy.cos(numpy.deg2rad(mid_rates["angle"])) / 3600.0
+                    dec_rate = mid_rates["rate"] * numpy.sin(numpy.deg2rad(mid_rates["angle"])) / 3600.0
+                    reference_date = mid_exposure_mjd(reference_hdu[0])
+                    dt = (reference_date - centre_epoch).to('hour').value
+                    dra = ra_rate * dt
+                    ddec = dec_rate * dt
+                    dec_centre = args.centre[1] + ddec
+                    ra_centre = args.centre[0] + dra * numpy.cos(numpy.deg2rad(dec_centre))
+                    centre = SkyCoord(ra_centre, dec_centre, unit='degree')
+                    logging.info(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
+                w = WCS(astheads[image])
+                try:
+                    x, y = w.all_world2pix(centre.ra.degree, centre.dec.degree, 0)
+                except Exception as ex:
+                    logging.error(str(ex))
+                    continue
+                logging.info(f'{image} {centre.to_string(style="hmsdms", sep=":")} -> {x},{y}')
+                x1 = int(max(0, x - box_size))
+                x2 = int(min(hdul[1].header['NAXIS1'], x1 + 2 * box_size))
+                x1 = int(max(0, x2 - 2 * box_size))
+                y1 = int(max(0, y - box_size))
+                y2 = int(min(hdul[1].header['NAXIS2'], y1 + 2 * box_size))
+                y1 = int(max(0, y2 - 2 * box_size))
+                logging.info(f'{hdul[0].header["FRAMEID"]} -> [{y1}:{y2},{x1}:{x2}]')
+                hdul[0].header['XOFFSET'] = x1
+                hdul[0].header['YOFFSET'] = y1
+                astheads[image]['CRPIX1'] -= x1
+                astheads[image]['CRPIX2'] -= y1
+                logging.info(f'Extracting cutout of {image} from file on disk.')
+                for idx in range(1, 4):
                     try:
-                        x, y = w.all_world2pix(centre.ra.degree, centre.dec.degree, 0)
+                        data = hdul[idx].data[y1:y2, x1:x2]
                     except Exception as ex:
                         logging.error(str(ex))
-                        continue
-                    logging.info(f'{image} {centre.to_string(style="hmsdms", sep=":")} -> {x},{y}')
-                    x1 = int(max(0, x - box_size))
-                    x2 = int(min(hdul[1].header['NAXIS1'], x1 + 2*box_size))
-                    x1 = int(max(0, x2 - 2*box_size))
-                    y1 = int(max(0, y - box_size))
-                    y2 = int(min(hdul[1].header['NAXIS2'], y1 + 2*box_size))
-                    y1 = int(max(0, y2 - 2*box_size))
-                    logging.info(f'{hdul[0].header["FRAMEID"]} -> [{y1}:{y2},{x1}:{x2}]')
-                    hdul[0].header['XOFFSET'] = x1
-                    hdul[0].header['YOFFSET'] = y1
-                    astheads[image]['CRPIX1'] -= x1
-                    astheads[image]['CRPIX2'] -= y1
-                    logging.info(f'Extracting cutout of {image} from file on disk.')
-                    for idx in range(1, 4):
-                        try:
-                            data = hdul[idx].data[y1:y2, x1:x2]
-                        except Exception as ex:
-                            logging.error(str(ex))
-                            logging.error(f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdul[0].header['FRAMEID']}, blanking this frame.")
-                            data = np.ones((y2-y1+1)*(x2-x1+1))*np.nan
-                            data.shape = y2-y1+1, x2-x1+1
-                        hdul[idx].data = data
-                        # hduc.append(fits.ImageHDU(data=data, header=hdul[idx].header))
-                    # tt_file = tempfile.NamedTemporaryFile(delete=False)
-                    # logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
-                    # hduc.writeto(tt_file)
-                    logging.info("DONE.")
-                    chdus[image] = hdul
+                        logging.error(
+                            f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdul[0].header['FRAMEID']}, blanking this frame.")
+                        data = np.ones((y2 - y1 + 1) * (x2 - x1 + 1)) * np.nan
+                        data.shape = y2 - y1 + 1, x2 - x1 + 1
+                    hdul[idx].data = data
+                    # hduc.append(fits.ImageHDU(data=data, header=hdul[idx].header))
+                # tt_file = tempfile.NamedTemporaryFile(delete=False)
+                # logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
+                # hduc.writeto(tt_file)
+                logging.info("DONE.")
+                chdus[image] = hdul
             hdus = chdus
         hdus2 = {}
         # Remove from the list HDULists where there is no data left (after cutout)
@@ -659,45 +657,45 @@ def main():
             logging.info(f'Masking pixels in image whose variance exceeds {args.clip} times the median variance.')
             for key in hdus:
                 # with fits.open(key, mode='update') as hdu:
-                    hdu = hdus[key]
-                    if hdu[HSC_HDU_MAP['image']].header.get('CLIP', None) is not None:
-                        continue
-                    hdu[HSC_HDU_MAP['image']].header['CLIP'] = args.clip
-                    # hdu.flush()
-                    mvar = numpy.nanmedian(hdu[HSC_HDU_MAP['variance']].data)
-                    if numpy.isnan(mvar):
-                        logging.warning(f"median varianace of {key} is {mvar}")
-                    logging.debug(f'Median variance of {key} is {mvar}')
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore", category=RuntimeWarning)
-                        bright_mask = hdu[HSC_HDU_MAP['variance']].data > mvar*args.clip
-                    detected_mask = bitfield_to_boolean_mask(hdu[HSC_HDU_MAP['mask']].data,
-                                                             ignore_flags=LSST_MASK_BITS['DETECTED'],
-                                                             flip_bits=True)
-                    logging.debug(f'Bright Mask flagged {np.sum(bright_mask)}')
-                    hdu[HSC_HDU_MAP['image']].data[bright_mask & detected_mask] = np.nan
-                    logging.debug(f'Clip setting {np.sum(bright_mask & detected_mask)} to nan')
-                    hdu[HSC_HDU_MAP['variance']].data[bright_mask & detected_mask] = np.nan
-                    # update the local version with the clipped data, but not if this is a cutout.
+                hdu = hdus[key]
+                if hdu[HSC_HDU_MAP['image']].header.get('CLIP', None) is not None:
+                    continue
+                hdu[HSC_HDU_MAP['image']].header['CLIP'] = args.clip
+                # hdu.flush()
+                mvar = numpy.nanmedian(hdu[HSC_HDU_MAP['variance']].data)
+                if numpy.isnan(mvar):
+                    logging.warning(f"median varianace of {key} is {mvar}")
+                logging.debug(f'Median variance of {key} is {mvar}')
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=RuntimeWarning)
+                    bright_mask = hdu[HSC_HDU_MAP['variance']].data > mvar * args.clip
+                detected_mask = bitfield_to_boolean_mask(hdu[HSC_HDU_MAP['mask']].data,
+                                                         ignore_flags=LSST_MASK_BITS['DETECTED'],
+                                                         flip_bits=True)
+                logging.debug(f'Bright Mask flagged {np.sum(bright_mask)}')
+                hdu[HSC_HDU_MAP['image']].data[bright_mask & detected_mask] = np.nan
+                logging.debug(f'Clip setting {np.sum(bright_mask & detected_mask)} to nan')
+                hdu[HSC_HDU_MAP['variance']].data[bright_mask & detected_mask] = np.nan
+                # update the local version with the clipped data, but not if this is a cutout.
 
         if args.mask:
             # set masked pixel to 'nan' before sending for stacking
             for key in hdus:
                 # with fits.open(key, mode='update') as hdu:
-                    hdu = hdus[key]
-                    if not hdu[HSC_HDU_MAP['image']].header.get('MASKED', False):
-                        hdu[HSC_HDU_MAP['image']].data = mask_as_nan(hdu[HSC_HDU_MAP['image']].data,
-                                                                     hdu[HSC_HDU_MAP['mask']].data)
-                        hdu[HSC_HDU_MAP['variance']].data = mask_as_nan(hdu[HSC_HDU_MAP['variance']].data,
-                                                                        hdu[HSC_HDU_MAP['mask']].data)
-                        hdu[HSC_HDU_MAP['image']].header['MASKED'] = True
+                hdu = hdus[key]
+                if not hdu[HSC_HDU_MAP['image']].header.get('MASKED', False):
+                    hdu[HSC_HDU_MAP['image']].data = mask_as_nan(hdu[HSC_HDU_MAP['image']].data,
+                                                                 hdu[HSC_HDU_MAP['mask']].data)
+                    hdu[HSC_HDU_MAP['variance']].data = mask_as_nan(hdu[HSC_HDU_MAP['variance']].data,
+                                                                    hdu[HSC_HDU_MAP['mask']].data)
+                    hdu[HSC_HDU_MAP['image']].header['MASKED'] = True
 
         for rate in rates:
-            dra = rate['rate']*np.cos(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
-            ddec = rate['rate']*np.sin(np.deg2rad(rate['angle'])) * units.arcsecond/units.hour
+            dra = rate['rate'] * np.cos(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
+            ddec = rate['rate'] * np.sin(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             if args.group:
-                int_rate = int(rate["rate"]*10)
-                int_angle = int((rate['angle'] % 360)*10)
+                int_rate = int(rate["rate"] * 10)
+                int_angle = int((rate['angle'] % 360) * 10)
                 expnum = f'{int(args.pointing)}{int_rate:02d}{int_angle:04d}{index}'
                 output_filename = f'{expnum}p{args.ccd:02d}.fits'
             else:
@@ -734,5 +732,6 @@ def main():
 
 if __name__ == "__main__":
     import sys
+
     status = main()
     sys.exit(status)
