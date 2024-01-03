@@ -2,6 +2,8 @@
 Given an ephemeris file and list of RA/DEC bounding boxes determine which boxes will contain the object on orbit determine from ephem.
 """
 import argparse
+import copy
+
 import numpy
 from astropy import units
 from astropy.table import Table
@@ -65,7 +67,7 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
     for row in skycat:
         epoch = Time(row['mjdobs'], format='mjd').utc
         orbit.predict(epoch)
-        coord1 = orbit.coordinate
+        coord1 = copy.deepcopy(orbit.coordinate)
         if not (row['ramin'] < coord1.ra.degree < row['ramax'] and
                 row['decmin'] < coord1.dec.degree < row['decmax']):
             continue
@@ -75,10 +77,10 @@ def main(mpc_filename, track_filename, pointing_catalog_filename, **kwargs):
         #    continue
         index += 1
         orbit.predict(epoch+1*units.hour)
-        coord2 = orbit.coordinate
-        ra_rate = (coord2.ra - coord1.ra).to('arcsec').value * numpy.cos(coord2.dec.radian)
-        dec_rate = (coord2.dec - coord1.dec).to('arcsec').value
-        angle = numpy.rad2deg(numpy.arctan2(dec_rate, ra_rate))
+        coord2 = copy.deepcopy(orbit.coordinate)
+        ra_rate = (coord2.ra - coord1.ra) * numpy.cos((coord2.dec.radian + coord1.dec.radian)/2.0)
+        dec_rate = (coord2.dec - coord1.dec)
+        angle = numpy.rad2deg(numpy.arctan2(dec_rate.radian, ra_rate.radian))
         rate = (ra_rate**2 + dec_rate**2)**0.5
         track_rows.append([row['pointing'],
                            row['ccd'],

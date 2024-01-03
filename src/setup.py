@@ -16,7 +16,6 @@ install_requires = ['numpy~=1.20.1',
                     'scipy~=1.6.1',
                     'ephem~=3.7.7.1',
                     'pyds9~=1.8.1',
-                    'daomop~=0.3.3',
                     'setuptools~=56.0.0',
                     'ccdproc~=2.1.1']
 
@@ -35,6 +34,7 @@ setup(
         "console_scripts": [
             "daomop-sns = daomop.sns:main",
             "daomop-predict-obs = daomop.predict_obs:run",
+            "daomop-vet = daomop.measure_from_ast:run",
             "daomop-measure = daomop.measure_kbo:run",
             "daomop-measure-orbit = daomop.measure_from_orbit:run",
             "daomop-train-cnn = daomop.train_model:main",
