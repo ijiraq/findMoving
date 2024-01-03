@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# A script to initialize the conad environment to astroconda
 function execute {
     cmd=$1
     arg=$2
