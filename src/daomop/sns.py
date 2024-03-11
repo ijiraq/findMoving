@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import tempfile
+from collections import OrderedDict
 import numpy as np
 from astropy import time, units
 from astropy.coordinates import SkyCoord
@@ -9,7 +10,9 @@ from astropy.io import fits
 from astropy.nddata import VarianceUncertainty, bitfield_to_boolean_mask
 from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
+from mp_ephem import BKOrbit
 from . import util
+from math import cos
 from .util import get_image_list
 from .version import __version__
 import warnings
@@ -146,7 +149,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
             elif layer == 'mask':
                 data = bitfield_to_boolean_mask(data, ignore_flags=STACK_MASK, flip_bits=True)
             ccd_data[layer] = data
-        logging.info(f'Adding {hdu[0].header["IMAGE"]} to projected stack.')
+        logging.debug(f'Adding {hdu[0].header["IMAGE"]} to projected stack.')
         # reference_header = referece_hdu[1].header
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -196,7 +199,7 @@ def up_sample_2d(output_array, input_array, rf):
 
 
 def frameid(hdu):
-    return hdu[0].header['FRAMEID']
+    return hdu[0].header['EXPID']
 
 
 def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
@@ -380,9 +383,9 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             num_frames = numpy.sum(~numpy.isnan(outs), axis=0)
             logging.debug(f'num_frames: {num_frames[num_frames > 0]}')
             logging.debug(f'Stacking {len(outs)} images of shape {outs[0].shape}')
-            logging.info(f'Combining shifted pixels using {stacking_mode}')
+            logging.debug(f'Combining shifted pixels using {stacking_mode}')
             if stacking_mode == STACKING_MODES['WEIGHTED_MEDIAN']:
-                logging.info(f'computing weighted quantile: {0.5001}')
+                logging.debug(f'computing weighted quantile: {0.5001}')
                 sorter = np.argsort(outs, axis=0)
                 outs = numpy.take_along_axis(outs, sorter, axis=0)
                 variances = 1. / variances
@@ -399,7 +402,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             else:
                 stacked_data = stacking_mode(outs, axis=0)
                 del outs
-            logging.info("combined finished.")
+            logging.debug("combined finished.")
             logging.debug(f'Setting variance to mean variance / N frames')
             stacked_variance = STACKING_MODES['MEAN'](variances, axis=0) / num_frames
             del variances
@@ -433,12 +436,80 @@ def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
 
 
 def mid_exposure_mjd(hdu):
-    mjd_start = time.Time(hdu.header['MJD-STR'], format='mjd').utc
-    mjd_end = time.Time(hdu.header['MJD-END'], format='mjd').utc
-    return mjd_start + (mjd_end - mjd_start) / 2.0
+    return time.Time(hdu.header['DATE-AVG'])
+    # mjd_start = time.Time(hdu.header['MJD-STR'], format='mjd')
+    # mjd_end = time.Time(hdu.header['MJD-END'], format='mjd')
+    # return mjd_start + (mjd_end - mjd_start) / 2.0
 
 
-def main():
+def tnodb_stack():
+    """Use a tnodb file as the input to stacking."""
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                                     fromfile_prefix_chars='@')
+    parser.add_argument('astfile', help='astrometry to fit orbit to.')
+    parser.add_argument('images', nargs='+', help='List of images to stack.')
+    parser.add_argument('--num-of-rates', type=int, default=3, help="How many rates in the grid")
+    parser.add_argument('--rate-spacing', type=float, default=0.2, help="Rate grid spacing, in ''/hr")
+    parser.add_argument('--log-level', default='INFO', choices=['INFO', 'DEBUG', 'ERROR'] )
+    parser.add_argument('--pixel-scale', help="What should the pixel scale of the stack be? (in arc-seconds)",
+                        default=0.16)
+    parser.add_argument('--swarp', action='store_true',
+                        help="Use projection to do shifts, default is pixel shifts.")
+    parser.add_argument('--stack-mode', choices=STACKING_MODES.keys(),
+                        default='WEIGHTED_MEDIAN', help="How to combine images.")
+    parser.add_argument('--rectify', action='store_true', help="Rectify images to WCS of reference, otherwise "
+                                                               "images must be on same grid before loading.")
+    parser.add_argument('--mask', action='store_true', help='set masked pixels to nan before shift/stack')
+    parser.add_argument('--n-sub-stacks', default=3, type=int, help='How many sub-stacks should we produce')
+    parser.add_argument('--clip', type=int, default=None,
+                        help='Mask pixel whose variance is clip times the median variance')
+    parser.add_argument('--section-size', type=int, default=256,
+                        help='Break images into section when stacking (conserves memory)')
+    parser.add_argument('--time_groups', action='store_true', help='Make stacks time grouped instead of striding.')
+
+    args = parser.parse_args()
+    logging.basicConfig(level=getattr(logging, args.log_level),
+                        format="%(asctime)s :: %(levelname)s :: %(module)s.%(funcName)s:%(lineno)d %(message)s")
+
+    orbit = BKOrbit(None, args.astfile)
+    images = sort_images(args.images)
+    base_hdu = list(images.values())[0]
+    orbit.predict(mid_exposure_mjd(base_hdu[0]))
+    coord1 = orbit.coordinate
+    orbit.predict(mid_exposure_mjd(list(images.values())[-1][0]))
+    coord2 = orbit.coordinate
+
+    dra = cos(coord2.dec.radian)*(coord2.ra - coord1.ra) / (coord2.obstime - coord1.obstime)
+    ddec = (coord2.dec - coord1.dec) / (coord2.obstime - coord1.obstime)
+    r_min = r_max = (np.sqrt(dra ** 2 + ddec ** 2)).to('arcsec/hour').value
+    angle_min = angle_max = np.arctan2(ddec, dra).to('degree').value
+    logging.info(f"Optimal rate ({dra.to('arcsec/hour'):3.1f},{ddec.to('arcsec/hour'):3.1f}) -- {r_min:4.2f} and angle {angle_min:5.1f}")
+    r_min -= (args.num_of_rates//2)*args.rate_spacing
+    r_max += (args.num_of_rates//2)*args.rate_spacing
+    rates = shift_rates(r_min, r_max, args.rate_spacing, angle_min, angle_max, 0.1)
+    logging.info(f'Shift-and-Stacking the following list of rate/angle pairs: '
+                 f'{[(rate["rate"], rate["angle"]) for rate in rates]}')
+    stack_function = swarp if args.swarp else shift
+    stack(images, stack_function, rates, orbit.name, 0,
+    n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
+    time_groups=args.time_groups, use_swarp=args.swarp, rectify=args.rectify,
+    section_size=args.section_size, clip=args.clip, mask=args.mask,
+    centre = get_centre(list(images.values())[len(images)//2], orbit))
+
+
+def get_centre(reference_image, orbit) -> SkyCoord:
+    """
+    Given the reference image for a stack compute the sky coord of target at that time
+    at the mid-point of the exposures.
+    :param images: list of HDUList
+    :param orbit: BKOrbit of interest.
+    :return:
+    """
+    orbit.predict(mid_exposure_mjd(reference_image[0]))
+    return orbit.coordinate
+
+
+def kbmod_stack():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                      fromfile_prefix_chars='@',
                                      parents=[util.base_parser])
@@ -464,7 +535,7 @@ def main():
                         help='Break images into section when stacking (conserves memory)')
     parser.add_argument('--centre', default=None, help="only stack data around this RA/DEC (decimal degree) centre",
                         nargs=3, type=float)
-    parser.add_argument('--group', action='store_true', help='Make stacks time grouped instead of striding.')
+    parser.add_argument('--time_groups', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level),
@@ -496,10 +567,20 @@ def main():
     if not len(images) > 0:
         raise OSError(f'No images found using {input_rerun}')
 
+    images = sort_images(images)
+
+    stack(images, stack_function, rates, args.pointing, args.ccd,
+          n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
+          time_groups=args.time_group, swarp=args.swarp, rectify=args.rectify, centre=args.centre,
+          section_size=args.section_size, clip=args.clip, mask=args.mask)
+
+
+def sort_images(images) -> OrderedDict:
+    """
     # Organize images in MJD order.
-    mjds = []
+    """
+    mjds = OrderedDict()
     logging.info(f"Sorting list of {len(images)} based on mjd")
-    new_images = []
     full_hdus = {}
     for filename in images:
         try:
@@ -507,17 +588,37 @@ def main():
             image = os.path.basename(filename)
             full_hdus[image] = hdulist
             full_hdus[image][0].header['IMAGE'] = image
-            mjds.append(time.Time(mid_exposure_mjd(hdulist[0])))
-            new_images.append(image)
+            mjds[image] = time.Time(mid_exposure_mjd(hdulist[0]))
         except Exception as ex:
             logging.error(str(ex))
-            logging.error(f"Failed to open {filename} not using")
+            logging.error(f"Failed to get time for {filename}: not using")
 
-    ind = np.argsort(mjds)
-    # sort the images by mjd
-    images = numpy.array(new_images)[ind]
-    logging.info(f"Sorted list of {len(mjds)} dates.")
-    # In debug mode just do three images or less if there aren't three
+    return OrderedDict({image: full_hdus[image] for image, value in sorted(mjds.items(), key=lambda item: item[1])})
+
+
+def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
+          n_sub_stacks=1, stack_mode='MEAN',
+          time_groups=False, use_swarp=False, rectify=False,
+          section_size=128, clip=None, mask=False, centre=SkyCoord(0, 0, unit='degree')):
+    """
+    Stack the images in the list using the stack_function and rates.
+
+    :param full_hdus: a dictionary (by image name) of all the HDULists to stack.
+    :param stack_function:
+    :param n_sub_stacks:
+    :param stack_mode:
+    :param time_groups:
+    :param use_swarp:
+    :param rectify:
+    :param centre:
+    :param section_size:
+    :param clip:
+    :param mask:
+    :param rates:
+    :param args:
+    :return:
+    """
+    images = list(full_hdus.keys())
     if logging.getLogger().getEffectiveLevel() < logging.INFO:
         num_of_images = min(6, len(images))
         stride = max(1, int(len(images) / num_of_images - 1))
@@ -526,10 +627,10 @@ def main():
 
     # do the stacking in groups of images as set from the CL.
     reference_hdu = None
-    for index in range(args.n_sub_stacks):
-        if not args.group:
+    for index in range(n_sub_stacks):
+        if not time_groups:
             # stride the image list
-            sub_images = images[index::args.n_sub_stacks]
+            sub_images = images[index::n_sub_stacks]
             reference_idx = int(len(images) // 2)
             reference_image = images[reference_idx]
             reference_hdu = full_hdus[reference_image]
@@ -537,10 +638,10 @@ def main():
             # reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
             # reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         else:
-            # group images by time
-            start_idx = len(images) // args.n_sub_stacks * index
+            # time_groups images by time
+            start_idx = len(images) // n_sub_stacks * index
             start_idx = int(max(0, start_idx))
-            end_idx = len(images) // args.n_sub_stacks * (index + 1)
+            end_idx = len(images) // n_sub_stacks * (index + 1)
             end_idx = int(min(len(images), end_idx))
             sub_images = images[start_idx:end_idx]
 
@@ -556,14 +657,14 @@ def main():
         for image in sub_images:
             astheads[image] = hdus[image][1].header
 
-        if args.group:
+        if time_groups:
             reference_idx = int(len(sub_images) // 2)
             reference_image = sub_images[reference_idx]
             reference_hdu = hdus[reference_image]
             # reference_hdu = fits.open(sub_images[reference_idx])
         reference_filename = os.path.splitext(reference_hdu[0].header['IMAGE'])[0][0:]
 
-        if not args.swarp and args.rectify:
+        if not swarp and rectify:
             # Need to project all images to same WCS before passing to stack.
             logging.info('Swarp-ing the input images to a common projection and reference frame.')
             swarped_hdus = swarp(hdus, reference_hdu, None)
@@ -584,66 +685,50 @@ def main():
                 # noinspection PyUnresolvedReferences
                 # hdus.close()
 
-        if args.centre is not None:
-            box_size = args.section_size // 2
-            chdus = {}
-            centre = None
-            for key in hdus:
-                # with fits.open(key) as hdul:
-                hdul = hdus[key]
-                image = key
-                # image = hdul[0].header['IMAGE']
-                if centre is None:
-                    # make the center of cutouts the RA/DEC given but offset for epoch of
-                    # RA/DEC and middle rate of motion.
-                    centre_epoch = time.Time(args.centre[2], format='mjd').utc
-                    mid_rates = rates[len(rates) // 2]
-                    ra_rate = mid_rates["rate"] * numpy.cos(numpy.deg2rad(mid_rates["angle"])) / 3600.0
-                    dec_rate = mid_rates["rate"] * numpy.sin(numpy.deg2rad(mid_rates["angle"])) / 3600.0
-                    reference_date = mid_exposure_mjd(reference_hdu[0])
-                    dt = (reference_date - centre_epoch).to('hour').value
-                    dra = ra_rate * dt
-                    ddec = dec_rate * dt
-                    dec_centre = args.centre[1] + ddec
-                    ra_centre = args.centre[0] + dra * numpy.cos(numpy.deg2rad(dec_centre))
-                    centre = SkyCoord(ra_centre, dec_centre, unit='degree')
-                    logging.info(f'Extracting box of 1/2 width {box_size} pixels around {centre}')
-                w = WCS(astheads[image])
+        chdus = OrderedDict()
+        for key in hdus:
+            # with fits.open(key) as hdul:
+            hdul = hdus[key]
+            image = key
+            # image = hdul[0].header['IMAGE']
+            box_size = section_size//2
+            logging.debug(f'Extracting from {image} box of 1/2 width {box_size} pixels around {centre}')
+            w = WCS(astheads[image])
+            try:
+                x, y = w.all_world2pix(centre.ra.degree, centre.dec.degree, 0)
+            except Exception as ex:
+                logging.error(str(ex))
+                continue
+            logging.debug(f'{image} {centre.to_string(style="hmsdms", sep=":")} -> {x},{y}')
+            x1 = int(max(0, x - box_size))
+            x2 = int(min(hdul[1].header['NAXIS1'], x1 + 2 * box_size))
+            x1 = int(max(0, x2 - 2 * box_size))
+            y1 = int(max(0, y - box_size))
+            y2 = int(min(hdul[1].header['NAXIS2'], y1 + 2 * box_size))
+            y1 = int(max(0, y2 - 2 * box_size))
+            logging.debug(f'{hdul[0].header["EXPID"]} -> [{y1}:{y2},{x1}:{x2}]')
+            hdul[0].header['XOFFSET'] = x1
+            hdul[0].header['YOFFSET'] = y1
+            astheads[image]['CRPIX1'] -= x1
+            astheads[image]['CRPIX2'] -= y1
+            logging.debug(f'Extracting cutout of {image} from file on disk.')
+            for idx in range(1, 4):
                 try:
-                    x, y = w.all_world2pix(centre.ra.degree, centre.dec.degree, 0)
+                    data = hdul[idx].data[y1:y2, x1:x2]
                 except Exception as ex:
                     logging.error(str(ex))
-                    continue
-                logging.info(f'{image} {centre.to_string(style="hmsdms", sep=":")} -> {x},{y}')
-                x1 = int(max(0, x - box_size))
-                x2 = int(min(hdul[1].header['NAXIS1'], x1 + 2 * box_size))
-                x1 = int(max(0, x2 - 2 * box_size))
-                y1 = int(max(0, y - box_size))
-                y2 = int(min(hdul[1].header['NAXIS2'], y1 + 2 * box_size))
-                y1 = int(max(0, y2 - 2 * box_size))
-                logging.info(f'{hdul[0].header["FRAMEID"]} -> [{y1}:{y2},{x1}:{x2}]')
-                hdul[0].header['XOFFSET'] = x1
-                hdul[0].header['YOFFSET'] = y1
-                astheads[image]['CRPIX1'] -= x1
-                astheads[image]['CRPIX2'] -= y1
-                logging.info(f'Extracting cutout of {image} from file on disk.')
-                for idx in range(1, 4):
-                    try:
-                        data = hdul[idx].data[y1:y2, x1:x2]
-                    except Exception as ex:
-                        logging.error(str(ex))
-                        logging.error(
-                            f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdul[0].header['FRAMEID']}, blanking this frame.")
-                        data = np.ones((y2 - y1 + 1) * (x2 - x1 + 1)) * np.nan
-                        data.shape = y2 - y1 + 1, x2 - x1 + 1
-                    hdul[idx].data = data
-                    # hduc.append(fits.ImageHDU(data=data, header=hdul[idx].header))
-                # tt_file = tempfile.NamedTemporaryFile(delete=False)
-                # logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
-                # hduc.writeto(tt_file)
-                logging.info("DONE.")
-                chdus[image] = hdul
-            hdus = chdus
+                    logging.error(
+                        f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdul[0].header['EXPID']}, blanking this frame.")
+                    data = np.ones((y2 - y1 + 1) * (x2 - x1 + 1)) * np.nan
+                    data.shape = y2 - y1 + 1, x2 - x1 + 1
+                hdul[idx].data = data
+                # hduc.append(fits.ImageHDU(data=data, header=hdul[idx].header))
+            # tt_file = tempfile.NamedTemporaryFile(delete=False)
+            # logging.info(f"Writing {key}[{y1}:{y2},{x1}:{x2}] to temporary file {tt_file.name}")
+            # hduc.writeto(tt_file)
+            logging.debug("DONE.")
+            chdus[image] = hdul
+        hdus = chdus
         hdus2 = {}
         # Remove from the list HDULists where there is no data left (after cutout)
         for key in hdus:
@@ -651,16 +736,16 @@ def main():
                 hdus2[key] = hdus[key]
         hdus = hdus2
 
-        if args.clip is not None:
+        if clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
             # mask pixels that are both high-variance AND part of a detected source.
-            logging.info(f'Masking pixels in image whose variance exceeds {args.clip} times the median variance.')
+            logging.info(f'Masking pixels in image whose variance exceeds {clip} times the median variance.')
             for key in hdus:
                 # with fits.open(key, mode='update') as hdu:
                 hdu = hdus[key]
                 if hdu[HSC_HDU_MAP['image']].header.get('CLIP', None) is not None:
                     continue
-                hdu[HSC_HDU_MAP['image']].header['CLIP'] = args.clip
+                hdu[HSC_HDU_MAP['image']].header['CLIP'] = clip
                 # hdu.flush()
                 mvar = numpy.nanmedian(hdu[HSC_HDU_MAP['variance']].data)
                 if numpy.isnan(mvar):
@@ -668,7 +753,7 @@ def main():
                 logging.debug(f'Median variance of {key} is {mvar}')
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=RuntimeWarning)
-                    bright_mask = hdu[HSC_HDU_MAP['variance']].data > mvar * args.clip
+                    bright_mask = hdu[HSC_HDU_MAP['variance']].data > mvar * clip
                 detected_mask = bitfield_to_boolean_mask(hdu[HSC_HDU_MAP['mask']].data,
                                                          ignore_flags=LSST_MASK_BITS['DETECTED'],
                                                          flip_bits=True)
@@ -678,7 +763,7 @@ def main():
                 hdu[HSC_HDU_MAP['variance']].data[bright_mask & detected_mask] = np.nan
                 # update the local version with the clipped data, but not if this is a cutout.
 
-        if args.mask:
+        if mask:
             # set masked pixel to 'nan' before sending for stacking
             for key in hdus:
                 # with fits.open(key, mode='update') as hdu:
@@ -693,29 +778,31 @@ def main():
         for rate in rates:
             dra = rate['rate'] * np.cos(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             ddec = rate['rate'] * np.sin(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
-            if args.group:
+            if time_groups:
                 int_rate = int(rate["rate"] * 10)
                 int_angle = int((rate['angle'] % 360) * 10)
-                expnum = f'{int(args.pointing)}{int_rate:02d}{int_angle:04d}{index}'
-                output_filename = f'{expnum}p{args.ccd:02d}.fits'
+                expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{index}'
+                output_filename = f'{expnum}p{ccd:02d}.fits'
             else:
-                expnum = reference_hdu[0].header.get('FRAMEID', 'HSCA0000000').replace('HSCA', '')
+                expnum = reference_hdu[0].header.get('EXPID', 0)
                 output_filename = f'STACK-{reference_filename}-{index:02d}-' \
                                   f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
             # Removed check of VOSpace as now running on arcade
+            output_dir = "./"
             output_filename = os.path.join(output_dir, output_filename)
             output = stack_function(hdus, reference_hdu, {'dra': dra, 'ddec': ddec},
-                                    stacking_mode=args.stack_mode, section_size=args.section_size, astheads=astheads)
+                                    stacking_mode=stack_mode, section_size=section_size, 
+                                    astheads=astheads)
             logging.debug(f'Got stack result {output}, writing to {output_filename}')
             # Keep a history of which visits when into the stack.
             output[0].header['SOFTWARE'] = f'{__name__}-{__version__}'
             output[0].header['NCOMBINE'] = (len(hdus), 'Number combined')
-            output[0].header['COMBALGO'] = (args.stack_mode, 'Stacking mode')
+            output[0].header['COMBALGO'] = (stack_mode, 'Stacking mode')
             output[0].header['RATE'] = (rate['rate'], 'arc-second/hour')
             output[0].header['ANGLE'] = (rate['angle'], 'degree')
             output[0].header['DRA'] = (dra.value, str(dra.unit))
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
-            output[0].header['CCDNUM'] = (args.ccd, 'CCD NUMBER or DETSER')
+            output[0].header['CCDNUM'] = (ccd, 'CCD NUMBER or DETSER')
             output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
             output[0].header['REFEXP'] = (reference_filename, 'reference exposure')
             output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0]).mjd, " MID Exposure")
