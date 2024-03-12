@@ -6,6 +6,7 @@ import logging
 import os, sys
 from mp_ephem import BKOrbit
 import numpy
+import math
 import pyds9
 from astropy import units
 from astropy.io import fits
@@ -72,7 +73,7 @@ def main(**kwargs):
                 wcs_header = header
                 wcs_header_filename = image
                 wcs_dict[image] = WCS(wcs_header)
-                logging.warning(f"using original wcs")
+                logging.debug(f"using original wcs")
             if orbit is not None:
                 orbit.predict(obsdate)
                 ra = orbit.coordinate.ra.degree
@@ -155,9 +156,10 @@ def main(**kwargs):
         note1 = allowed_keys[key][0]
         frame_no = int(ds9.get('frame')) - 1
         image = images[frame_no]
+        with fits.open(image) as _hdulist:
+            exptime = _hdulist[0].header.get('EXPTIME', 0.0)
         ds9.set('regions', f'image; circle {x} {y} 20')
         hdulist = ds9.get_pyfits()
-        print(hdulist)
         hdulist[0].writeto('temp.fits', overwrite=True)
         centroid = not note1 == 'H'
         phot = daophot.phot_mag('temp.fits',
@@ -166,10 +168,10 @@ def main(**kwargs):
                                 sky_inner_radius=15,
                                 sky_annulus_width=10,
                                 apcor=0.3,
-                                zmag=27.1,
+                                zmag=26.7,
                                 maxcount=1000,
                                 extno=0,
-                                exptime=90.0,
+                                exptime=exptime,
                                 centroid=centroid)
         
         phot_failure = (phot['PIER'][0] != 0 or
@@ -191,9 +193,12 @@ def main(**kwargs):
             obs_mag = phot['MAG'][0]
             obs_mag_err = phot['MERR'][0]
 
-        obsdate = Time(Time(fits.open(image)[0].header['DATE-AVG'], scale='tai').mjd,
+        with fits.open(image) as _hdu_list:
+            primary_hdu = _hdu_list[0]
+            obsdate = Time(Time(primary_hdu.header['DATE-AVG'], scale='tai').mjd,
                        format='mjd',
                        precision=6).mpc
+            frame = primary_hdu.header.get('FRAMEID', os.path.basename(image))
         try:
             ra, dec = wcs_dict[image].all_pix2world(cen_x + offset[image][0],
                                                     cen_y + offset[image][1],
@@ -215,13 +220,13 @@ def main(**kwargs):
             ra=ra*units.degree,
             dec=dec*units.degree,
             mag=obs_mag,
-            mag_err=obs_mag_err,
+            mag_err=None,
             band='r',
             observatory_code='568',
             comment=None,
             xpos=x,
             ypos=y,
-            frame=os.path.basename(image),
+            frame=frame,
             astrometric_level=2))
         discovery = False
         ds9.set('frame next')
@@ -235,32 +240,33 @@ def _main(**kwargs):
     
     logging.info(f"Attempting measures of {kwargs['provisional_name']}, will write to {ast_filename}")
     obs = {}
-    kwargs['orbit'] = BKOrbit(None, ast_filename=ast_filename)
+    kwargs['orbit'] = BKOrbit(None, ast_filename)
     unique_obs = []
     for ob in kwargs['orbit'].observations:
+        record_key = ob.date.mpc
         try:
             record_key =ob.comment.frame
             if len(record_key)  > 0:
                 if record_key in obs:
                     logging.warning(f"Duplicate frame value: {record_key}")
                     continue
-            obs[record_key] = ob
         except:
-            print(ob)
+            pass
+        obs[record_key] = ob
 
     orb = BKOrbit([ obs[x] for x in obs])
     logging.info(orb.summarize())
     logging.info(f"Measuring on {len(kwargs['images'])} images, {kwargs['nframes']} at a time.")
     step_size = kwargs['nframes']
     stride = kwargs['stride']
-    niters = len(kwargs['images']) // (stride*step_size)
+    niters = int(math.ceil(len(kwargs['images']) / (stride*step_size) ))
     images = kwargs['images']
     for i in range(niters):
-        image_set = images[i*step_size*stride:i*step_size*stride+step_size*stride:stride]
+        image_set = images[i*step_size*stride:min(len(kwargs['images']),i*step_size*stride+step_size*stride):stride]
         if kwargs['skip']:
             kwargs['images'] = []
             for image in image_set:
-                frame = os.path.basename(image)[0:12]
+                frame = fits.open(image)[0].header.get('FRAMEID', os.path.basename(image)[0:12])
                 if frame in obs:
                     continue
                 kwargs['images'].append(image)
@@ -271,7 +277,7 @@ def _main(**kwargs):
             continue
         kwargs['orbit'] = BKOrbit(None, ast_filename=output_ast_filename)
         new_obs = main(**kwargs)
-        logging.info(f"{new_obs}")
+        logging.debug(f"{new_obs}")
         for record_index in new_obs:
             obs[record_index] = new_obs[record_index]
 
@@ -300,16 +306,19 @@ def main_args(args):
 
 
 def run():
-    main_parser = argparse.ArgumentParser()
+    main_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     main_parser.add_argument('provisonal_name')
     main_parser.add_argument('ast_filename', type=str)
     main_parser.add_argument('images', nargs='+')
-    main_parser.add_argument('--nframes', type=int, default=10)
-    main_parser.add_argument('--stride', type=int, default=1)
+    main_parser.add_argument('--nframes', type=int, default=10, help="Number of frames from images list to do in a sequence")
+    main_parser.add_argument('--stride', type=int, default=1, help="Skip this number of images per step while doing list of images")
     main_parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
-    main_parser.add_argument('--skip', action='store_true')
+    main_parser.add_argument('--skip', action='store_true', help="Skip images whose frame_id values are already in the astrometry input file.")
     args = main_parser.parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level))
+    _format="%(asctime)s :: %(levelname)s :: %(module)s.%(funcName)s:%(lineno)d %(message)s"
+    if args.log_level == 'INFO':
+         _format="%(message)s"
+    logging.basicConfig(level=getattr(logging, args.log_level), format=_format)
     _main(images=args.images, ast_filename=args.ast_filename, provisional_name=args.provisonal_name, nframes=args.nframes, stride=args.stride, skip=args.skip)
 
 
