@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-import tempfile
 from collections import OrderedDict
 import numpy as np
 from astropy import time, units
@@ -700,6 +699,11 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
                 logging.error(str(ex))
                 continue
             logging.debug(f'{image} {centre.to_string(style="hmsdms", sep=":")} -> {x},{y}')
+            if x + 2*box_size < 0 or x - 2*box_size > hdul[1].header['NAXIS1'] or \
+                    y + 2*box_size < 0 or y - 2*box_size > hdul[1].header['NAXIS2']:
+                logging.warning(f"For {image} predicted location {centre.to_string(style="hmsdms", sep=":")} "
+                                f"-> {x},{y}  too far off image using cutout of {box_size}")
+                continue
             x1 = int(max(0, x - box_size))
             x2 = int(min(hdul[1].header['NAXIS1'], x1 + 2 * box_size))
             x1 = int(max(0, x2 - 2 * box_size))
@@ -735,6 +739,9 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             if hdus[key] is not None:
                 hdus2[key] = hdus[key]
         hdus = hdus2
+        if len(hdus) == 0:
+            logging.warning(f"No images left after cutout for {centre}")
+            continue
 
         if clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
