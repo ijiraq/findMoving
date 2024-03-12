@@ -11,20 +11,84 @@ from astropy.wcs import WCS
 from ccdproc import CCDData, wcs_project, Combiner
 from mp_ephem import BKOrbit
 from . import util
-from math import cos
+from math import cos, ceil, floor
 from .util import get_image_list
 from .version import __version__
 import warnings
+import re
 
 numpy = np
 
 previous_snapshot = None
 
-STACKING_MODES = {'MEDIAN': np.nanmedian,
-                  'MEAN': np.nanmean,
-                  'SUM': np.nansum,
-                  'MAX': np.nanmax,
-                  'DEFAULT': np.nanmedian}
+def _median(outs, **kwargs):
+    return np.nanmedian(outs, axis=0)
+
+def _mean(outs, **kwargs):
+    return np.nanmean(outs, axis=0)
+
+def _sum(outs, **kwargs):
+    return np.nansum(outs, axis=0)
+
+def _max(outs, **kwargs):
+    return np.nanmax(outs, axis=0)
+
+def _weighted_median(outs, **kwargs):
+    variances = kwargs['variances']
+    logging.debug(f'computing weighted quantile: {0.5001}')
+    sorter = np.argsort(outs, axis=0)
+    outs = numpy.take_along_axis(outs, sorter, axis=0)
+    variances = 1. / variances
+    variances = numpy.take_along_axis(variances, sorter, axis=0)
+    del sorter
+    # check for inf weights, and remove
+    variances[numpy.isinf(variances)] = 0.0
+    weighted_quantiles = np.nancumsum(variances, axis=0) - 0.5 * variances
+    weighted_quantiles /= np.nansum(variances, axis=0)
+    ind = np.argmin(weighted_quantiles <= 0.5001, axis=0)
+    del weighted_quantiles
+    stacked_data = np.take_along_axis(outs, np.expand_dims(ind, axis=0), axis=0)[0]
+    return stacked_data
+
+def _weighted_quantile(outs, **kwargs):
+    """ Very close to numpy.percentile, but supports weights.
+    Always overwrite=True, works on arrays with nans.
+
+    # THIS IS NOT ACTUALLY THE PERCENTILE< BUT CLOSE ENOUGH...<
+
+    this was taken from a stackoverflow post:
+    https://stackoverflow.com/questions/21844024/weighted-percentile-using-numpy
+
+    NOTE: quantiles should be in [0, 1]!
+
+    :param values: numpy.array with data
+    :param quantile: array-like with many quantiles needed
+    :param sample_weight: array-like of the same length as `array`
+    :return: numpy.array with computed quantiles.
+    """
+    quantile=kwargs.get('quantile', 0.5)
+    variances=kwargs['variances']
+    logging.info(f'Computing weighted quantile: {quantile}')
+    sorter = np.argsort(values, axis=0)
+    values = numpy.take_along_axis(values, sorter, axis=0)
+    sample_weight = 1.0/numpy.take_along_axis(sample_weight, sorter, axis=0)
+    # check for inf weights, and remove
+    sample_weight[numpy.isinf(sample_weight)] = 0.0
+    weighted_quantiles = np.nancumsum(sample_weight, axis=0) - 0.5 * sample_weight
+    weighted_quantiles /= np.nansum(sample_weight, axis=0)
+    ind = np.argmin(weighted_quantiles <= quantile, axis=0)
+    return np.take_along_axis(values, np.expand_dims(ind, axis=0), axis=0)[0]
+
+
+STACKING_MODES = {'MEDIAN': _median,
+                  'MEAN': _mean,
+                  'SUM': _sum,
+                  'MAX': _max,
+                  'DEFAULT': _median,
+                  'WEIGHTED_MEDIAN': _weighted_median}
+
+#                  'WEIGHTED_QUANTILE': _weighted_quantile,
+
 
 LSST_MASK_BITS = {'BAD': 0,
                   'SAT': 1,
@@ -52,37 +116,6 @@ STACK_MASK = (2 ** LSST_MASK_BITS['EDGE'],
               2 ** LSST_MASK_BITS['SAT'],
               2 ** LSST_MASK_BITS['INTRP'],
               2 ** LSST_MASK_BITS['REJECTED'])
-
-
-def _weighted_quantile(values, quantile, sample_weight):
-    """ Very close to numpy.percentile, but supports weights.
-    Always overwrite=True, works on arrays with nans.
-
-    # THIS IS NOT ACTUALLY THE PERCENTILE< BUT CLOSE ENOUGH...<
-
-    this was taken from a stackoverflow post:
-    https://stackoverflow.com/questions/21844024/weighted-percentile-using-numpy
-
-    NOTE: quantiles should be in [0, 1]!
-
-    :param values: numpy.array with data
-    :param quantile: array-like with many quantiles needed
-    :param sample_weight: array-like of the same length as `array`
-    :return: numpy.array with computed quantiles.
-    """
-    logging.info(f'computing weighted quantile: {quantile}')
-    sorter = np.argsort(values, axis=0)
-    values = numpy.take_along_axis(values, sorter, axis=0)
-    sample_weight = numpy.take_along_axis(sample_weight, sorter, axis=0)
-    # check for inf weights, and remove
-    sample_weight[numpy.isinf(sample_weight)] = 0.0
-    weighted_quantiles = np.nancumsum(sample_weight, axis=0) - 0.5 * sample_weight
-    weighted_quantiles /= np.nansum(sample_weight, axis=0)
-    ind = np.argmin(weighted_quantiles <= quantile, axis=0)
-    return np.take_along_axis(values, np.expand_dims(ind, axis=0), axis=0)[0]
-
-
-STACKING_MODES['WEIGHTED_MEDIAN'] = None
 
 
 def mask_as_nan(data, bitmask, mask_bits=STACK_MASK):
@@ -127,7 +160,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
     reference_header = kwargs['astheads'][reference_hdu[0].header['IMAGE']]
     reference_wcs = WCS(reference_header)
     stack_input = {}
-    logging.info(f'stacking at rate/angle set: {rate}')
+    logging.info(f"Stacking at rate/angle dRA:{rate['dra']:5.1f} dDEC:{rate['ddec']:5.1f}")
     ccd_data = {}
 
     for image in hdus:
@@ -138,8 +171,7 @@ def swarp(hdus, reference_hdu, rate, hdu_idx=None, stacking_mode="MEAN", **kwarg
         # wcs_header = hdu[1].header.copy()
         dt = (mid_exposure_mjd(hdu[0]) - reference_date)
         if rate is not None:
-            wcs_header['CRVAL1'] -= (rate['dra'] * dt).to('degree').value * numpy.cos(
-                numpy.deg2rad(wcs_header['CRVAL2']))
+            wcs_header['CRVAL1'] -= (rate['dra'] * dt).to('degree').value 
             wcs_header['CRVAL2'] -= (rate['ddec'] * dt).to('degree').value
         for layer in hdu_idx:
             data = hdu[hdu_idx[layer]].data
@@ -296,7 +328,7 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
 
     rx = rate['dra']
     ry = rate['ddec']
-    logging.debug(f'Shifting at ({rx},{ry})')
+    logging.info(f"Stacking at rate/angle ({rate['dra']:5.1f},{rate['ddec']:5.1f})")
 
     mid_mjd = mid_exposure_mjd(reference_hdu[0])
     ref_skycoord = get_centre_coord(reference_hdu)
@@ -383,28 +415,10 @@ def shift(hdus, reference_hdu, rate, rf=3, stacking_mode=None, section_size=1024
             logging.debug(f'num_frames: {num_frames[num_frames > 0]}')
             logging.debug(f'Stacking {len(outs)} images of shape {outs[0].shape}')
             logging.debug(f'Combining shifted pixels using {stacking_mode}')
-            if stacking_mode == STACKING_MODES['WEIGHTED_MEDIAN']:
-                logging.debug(f'computing weighted quantile: {0.5001}')
-                sorter = np.argsort(outs, axis=0)
-                outs = numpy.take_along_axis(outs, sorter, axis=0)
-                variances = 1. / variances
-                variances = numpy.take_along_axis(variances, sorter, axis=0)
-                del sorter
-                # check for inf weights, and remove
-                variances[numpy.isinf(variances)] = 0.0
-                weighted_quantiles = np.nancumsum(variances, axis=0) - 0.5 * variances
-                weighted_quantiles /= np.nansum(variances, axis=0)
-                ind = np.argmin(weighted_quantiles <= 0.5001, axis=0)
-                del weighted_quantiles
-                stacked_data = np.take_along_axis(outs, np.expand_dims(ind, axis=0), axis=0)[0]
-                del outs
-            else:
-                stacked_data = stacking_mode(outs, axis=0)
-                del outs
+            stacked_data = stacking_mode(outs, variances=variances)
             logging.debug("combined finished.")
             logging.debug(f'Setting variance to mean variance / N frames')
-            stacked_variance = STACKING_MODES['MEAN'](variances, axis=0) / num_frames
-            del variances
+            stacked_variance = STACKING_MODES['MEAN'](variances) / num_frames
             logging.debug(f'Got back stack of shape {stacked_data.shape}, downSampling...')
             logging.debug(f'Down sampling to original grid (poor-mans quick interp method)')
             image_array[yo:yp, xo:xp] = down_sample_2d(stacked_data, rf)
@@ -447,19 +461,19 @@ def tnodb_stack():
                                      fromfile_prefix_chars='@')
     parser.add_argument('astfile', help='astrometry to fit orbit to.')
     parser.add_argument('images', nargs='+', help='List of images to stack.')
-    parser.add_argument('--num-of-rates', type=int, default=3, help="How many rates in the grid")
-    parser.add_argument('--rate-spacing', type=float, default=0.2, help="Rate grid spacing, in ''/hr")
+    parser.add_argument('--num-of-rates', type=int, default=5, help="How many rates in the grid")
+    parser.add_argument('--rate-spacing', type=float, default=0.1, help="Rate grid spacing, in ''/hr")
     parser.add_argument('--log-level', default='INFO', choices=['INFO', 'DEBUG', 'ERROR'] )
     parser.add_argument('--pixel-scale', help="What should the pixel scale of the stack be? (in arc-seconds)",
-                        default=0.16)
+                        default=0.185)
     parser.add_argument('--swarp', action='store_true',
                         help="Use projection to do shifts, default is pixel shifts.")
     parser.add_argument('--stack-mode', choices=STACKING_MODES.keys(),
-                        default='WEIGHTED_MEDIAN', help="How to combine images.")
+                        default='WEIGHTED_MEDIAN', help="Type of stacking.")
     parser.add_argument('--rectify', action='store_true', help="Rectify images to WCS of reference, otherwise "
                                                                "images must be on same grid before loading.")
     parser.add_argument('--mask', action='store_true', help='set masked pixels to nan before shift/stack')
-    parser.add_argument('--n-sub-stacks', default=3, type=int, help='How many sub-stacks should we produce')
+    parser.add_argument('--n-sub-stacks', default=1, type=int, help='How many sub-stacks should we produce')
     parser.add_argument('--clip', type=int, default=None,
                         help='Mask pixel whose variance is clip times the median variance')
     parser.add_argument('--section-size', type=int, default=256,
@@ -467,8 +481,10 @@ def tnodb_stack():
     parser.add_argument('--time_groups', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level),
-                        format="%(asctime)s :: %(levelname)s :: %(module)s.%(funcName)s:%(lineno)d %(message)s")
+    _format="%(asctime)s :: %(levelname)s :: %(module)s.%(funcName)s:%(lineno)d %(message)s"
+    if args.log_level == 'INFO':
+         _format="%(lineno)d %(message)s"
+    logging.basicConfig(level=getattr(logging, args.log_level), format=_format)
 
     orbit = BKOrbit(None, args.astfile)
     images = sort_images(args.images)
@@ -478,15 +494,15 @@ def tnodb_stack():
     orbit.predict(mid_exposure_mjd(list(images.values())[-1][0]))
     coord2 = orbit.coordinate
 
-    dra = cos(coord2.dec.radian)*(coord2.ra - coord1.ra) / (coord2.obstime - coord1.obstime)
+    dra = (coord2.ra - coord1.ra) / (coord2.obstime - coord1.obstime)
     ddec = (coord2.dec - coord1.dec) / (coord2.obstime - coord1.obstime)
     r_min = r_max = (np.sqrt(dra ** 2 + ddec ** 2)).to('arcsec/hour').value
     angle_min = angle_max = np.arctan2(ddec, dra).to('degree').value
-    logging.info(f"Optimal rate ({dra.to('arcsec/hour'):3.1f},{ddec.to('arcsec/hour'):3.1f}) -- {r_min:4.2f} and angle {angle_min:5.1f}")
-    r_min -= (args.num_of_rates//2)*args.rate_spacing
-    r_max += (args.num_of_rates//2)*args.rate_spacing
+    logging.info(f"Optimal rate dRA:{dra.to('arcsec/hour'):3.1f} dDEC:{ddec.to('arcsec/hour'):3.1f}")
+    r_min -= args.rate_spacing * ceil(args.num_of_rates/2)
+    r_max += args.rate_spacing * floor(args.num_of_rates/2)
     rates = shift_rates(r_min, r_max, args.rate_spacing, angle_min, angle_max, 0.1)
-    logging.info(f'Shift-and-Stacking the following list of rate/angle pairs: '
+    logging.debug(f'Shift-and-Stacking the following list of rate/angle pairs: '
                  f'{[(rate["rate"], rate["angle"]) for rate in rates]}')
     stack_function = swarp if args.swarp else shift
     stack(images, stack_function, rates, orbit.name, 0,
@@ -521,7 +537,7 @@ def kbmod_stack():
     parser.add_argument('--rectify', action='store_true', help="Rectify images to WCS of reference, otherwise "
                                                                "images must be on same grid before loading.")
     parser.add_argument('--mask', action='store_true', help='set masked pixels to nan before shift/stack')
-    parser.add_argument('--n-sub-stacks', default=3, type=int, help='How many sub-stacks should we produce')
+    parser.add_argument('--n-sub-stacks', default=1, type=int, help='How many sub-stacks should we produce')
     parser.add_argument('--rate-min', type=float, default=1, help='Minimum shift rate ("/hr)')
     parser.add_argument('--rate-max', type=float, default=5, help='Maximum shift rate ("/hr)')
     parser.add_argument('--rate-step', type=float, default=0.25, help='Step-size for shift rate ("/hr)')
@@ -579,7 +595,7 @@ def sort_images(images) -> OrderedDict:
     # Organize images in MJD order.
     """
     mjds = OrderedDict()
-    logging.info(f"Sorting list of {len(images)} based on mjd")
+    logging.info(f"Time ordering list of {len(images)} images")
     full_hdus = {}
     for filename in images:
         try:
@@ -618,11 +634,11 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
     :return:
     """
     images = list(full_hdus.keys())
-    if logging.getLogger().getEffectiveLevel() < logging.INFO:
-        num_of_images = min(6, len(images))
-        stride = max(1, int(len(images) / num_of_images - 1))
-        logging.debug(f'Selecting every {stride}th images, for total of {num_of_images}')
-        images = images[::stride]
+    # if logging.getLogger().getEffectiveLevel() < logging.INFO:
+    #     num_of_images = min(6, len(images))
+    #     stride = max(1, int(len(images) / num_of_images - 1))
+    #     logging.debug(f'Selecting every {stride}th images, for total of {num_of_images}')
+    #     images = images[::stride]
 
     # do the stacking in groups of images as set from the CL.
     reference_hdu = None
@@ -701,8 +717,8 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             logging.debug(f'{image} {centre.to_string(style="hmsdms", sep=":")} -> {x},{y}')
             if x + 2*box_size < 0 or x - 2*box_size > hdul[1].header['NAXIS1'] or \
                     y + 2*box_size < 0 or y - 2*box_size > hdul[1].header['NAXIS2']:
-                logging.warning(f"For {image} predicted location {centre.to_string(style="hmsdms", sep=":")} "
-                                f"-> {x},{y}  too far off image using cutout of {box_size}")
+                logging.debug(f'For {image} predicted location {centre.to_string(style="hmsdms", sep=":")} '
+                              f'-> {x},{y}  too far off image using cutout of {box_size}')
                 continue
             x1 = int(max(0, x - box_size))
             x2 = int(min(hdul[1].header['NAXIS1'], x1 + 2 * box_size))
@@ -742,6 +758,12 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
         if len(hdus) == 0:
             logging.warning(f"No images left after cutout for {centre}")
             continue
+
+        reference_idx = int(len(hdus) // 2)
+        reference_image = list(hdus.keys())[reference_idx]
+        ccd = int(re.search('-(\d\d).fits', reference_image).groups()[0])
+        reference_hdu = hdus[reference_image]
+        reference_filename = os.path.splitext(reference_hdu[0].header['IMAGE'])[0][0:]
 
         if clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
@@ -789,10 +811,10 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
                 int_rate = int(rate["rate"] * 10)
                 int_angle = int((rate['angle'] % 360) * 10)
                 expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{index}'
-                output_filename = f'{expnum}p{ccd:02d}.fits'
+                output_filename = f'{pointing}_{expnum}p{ccd:02d}.fits'
             else:
                 expnum = reference_hdu[0].header.get('EXPID', 0)
-                output_filename = f'STACK-{reference_filename}-{index:02d}-' \
+                output_filename = f'STACK-{pointing}-{index:02d}-{stack_mode}' \
                                   f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
             # Removed check of VOSpace as now running on arcade
             output_dir = "./"
@@ -800,6 +822,8 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             output = stack_function(hdus, reference_hdu, {'dra': dra, 'ddec': ddec},
                                     stacking_mode=stack_mode, section_size=section_size, 
                                     astheads=astheads)
+            date = mid_exposure_mjd(output[0])
+            frame_id = f"{pointing[0:2]}{date.strftime('%y%m%d')}{ccd:02d}"
             logging.debug(f'Got stack result {output}, writing to {output_filename}')
             # Keep a history of which visits when into the stack.
             output[0].header['SOFTWARE'] = f'{__name__}-{__version__}'
@@ -809,6 +833,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             output[0].header['ANGLE'] = (rate['angle'], 'degree')
             output[0].header['DRA'] = (dra.value, str(dra.unit))
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
+            output[0].header['FRAMEID'] = frame_id
             output[0].header['CCDNUM'] = (ccd, 'CCD NUMBER or DETSER')
             output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
             output[0].header['REFEXP'] = (reference_filename, 'reference exposure')
@@ -817,7 +842,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             output[0].header['YOFFSET'] = reference_hdu[0].header.get('YOFFSET', 0)
             output[0].header['XOFFSET'] = reference_hdu[0].header.get('XOFFSET', 0)
 
-            for i_index, image_name in enumerate(sub_images):
+            for i_index, image_name in enumerate(hdus):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
             output.writeto(output_filename, overwrite=True)
 
