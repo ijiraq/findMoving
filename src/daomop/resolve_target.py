@@ -144,7 +144,7 @@ def main():
     parser.add_argument('--pointing', help="Sometimes the pointing isn't given in the input file.")
     parser.add_argument('--vospace-base-dir', default="vos:NewHorizons/S20A-OT04")
     parser.add_argument('--stack-version', default=4, help="Which version of the stacks are we looking at?")
-    parser.add_argument('--nstack', help="how many cutout group stacks will be requested?", default=3)
+    parser.add_argument('--nstack', help="how many cutout time_groups stacks will be requested?", default=3)
     parser.add_argument('--log-level', default='INFO')
 
     args = parser.parse_args()
