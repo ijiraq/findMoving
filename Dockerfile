@@ -1,57 +1,37 @@
-FROM ubuntu:latest
+FROM ubuntu:latest AS deploy
 ARG DEBIAN_FRONTEND=noninteractive
 USER root
-# RUN conda update conda 
-RUN apt update
-
-RUN apt-get update  -y -q
-RUN apt-get install -q -y sssd libnss-sss libpam-sss
-RUN apt-get install -yq --no-install-recommends build-essential libssl-dev libffi-dev python3-dev
-RUN apt-get install -yq --no-install-recommends python3-pip
-RUN apt-get install -yq --no-install-recommends python3-numpy
-RUN apt-get install -yq --no-install-recommends python3-scipy
+RUN apt upgrade -y
+RUN apt update -y
 
 # system settings and permissions
-ADD nsswitch.conf /etc/
-ADD nofiles.conf /etc/security/limits.d/
+COPY canfar_src/nofiles.conf /etc/security/limits.d/
+COPY canfar_src/nsswitch.conf /etc/
+RUN apt-get -y install	sssd-ad
+RUN apt-get -y install	sssd-tools
+# put the standard start up script into place
+COPY canfar_src/startup.sh /skaha/startup.sh
+# see https://bugzilla.redhat.com/show_bug.cgi?id=1773148
 RUN touch /etc/sudo.conf && echo "Set disable_coredump false" > /etc/sudo.conf
-# generate missing dbus uuid (issue #47)
-RUN dbus-uuidgen --ensure
 
 
 ## see https://bugzilla.redhat.com/show_bug.cgi?id=1773148
-RUN apt-get install -yq --no-install-recommends iraf
-RUN apt-get install -yq --no-install-recommends xterm
-RUN apt-get install -yq --no-install-recommends git
-RUN apt-get install -yq --no-install-recommends libx11-dev
-RUN apt-get install -yq --no-install-recommends  iraf-dev
-RUN apt-get install -yq --no-install-recommends libxt-dev
-RUN apt-get install -yq --no-install-recommends libcfitsio-dev
+RUN apt-get install -yq curl xterm xrdp vim adcli parallel iraf
+RUN apt-get install -yq gcc git libx11-dev iraf-dev libxt-dev libcfitsio-dev
+RUN apt-get install -yq gfortran emacs xpa-tools pip
+# put the initialization of IRAF into the global setup
 
-## install xpa
-WORKDIR /opt/
-RUN git clone https://github.com/ericmandel/xpa.git
-WORKDIR xpa
-# We configure the files for a shared library.
-RUN ./configure --enable-shared=yes
-# I needed to install make, but others may have it already.
-RUN make install
-# Now we move the libraries we just made into the appropriate location in the OS.
-RUN mv libxpa* /usr/lib
-# Rebuild any static references in the library that would have been broken by the move.
-WORKDIR /usr/lib
-RUN ranlib libxpa.a
+# get a good version of ds9
+WORKDIR /opt
+# RUN curl https://ds9.si.edu/download/ubuntu22x86/ds9.ubuntu22x86.8.5.tar.gz  | tar xzf - ; mv ds9 /usr/bin/ds9
 
-
-RUN pip3 install vos cadcdata cadctap cadcutils
-RUN pip3 install astropy
-RUN pip3 install ccdproc
-RUN pip3 install ephem
-RUN pip3 install mp_ephem
-RUN pip3 install pyraf
-RUN pip3 install pyds9
-RUN pip3 install jupyterlab
-
+RUN apt-get install -yq python3-wxgtk4.0
+RUN pip install 'astropy>=5.1.0,<6.0.0'
+RUN apt-get install -qy python3-pyraf
+COPY canfar_src/iraf.sh /etc/profile.d/
+RUN ln -s /usr/lib/iraf/bin /usr/lib/iraf/bin.linux
+RUN ln -s /usr/lib/iraf/noao/bin /usr/lib/iraf/noao/bin.linux
+RUN ln -s /usr/lib/iraf/unix/bin /usr/lib/iraf/unix/bin.linux
 
 ARG BUILDDIR=/opt/findMoving
 RUN mkdir -p ${BUILDDIR}
@@ -60,8 +40,5 @@ COPY src  ./
 RUN python3 -m pip install -r requirements.txt
 RUN python3 setup.py install 
 
-RUN mkdir /skaha
-ADD init.sh /skaha/
-
-#CMD [ "bash" ]
+CMD /skaha/startup.sh
 

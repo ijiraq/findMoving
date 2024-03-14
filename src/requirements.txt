@@ -1,10 +1,9 @@
-numpy
-astropy
+astropy<=6
 ccdproc
 pyraf
 vos
 matplotlib
-scipy
 ephem
 pyds9
 mp_ephem
+ossos
