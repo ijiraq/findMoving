@@ -478,12 +478,12 @@ def tnodb_stack():
                         help='Mask pixel whose variance is clip times the median variance')
     parser.add_argument('--section-size', type=int, default=256,
                         help='Break images into section when stacking (conserves memory)')
-    parser.add_argument('--time_groups', action='store_true', help='Make stacks time grouped instead of striding.')
+    parser.add_argument('--time-groups', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
     _format="%(asctime)s :: %(levelname)s :: %(module)s.%(funcName)s:%(lineno)d %(message)s"
     if args.log_level == 'INFO':
-         _format="%(lineno)d %(message)s"
+         _format="%(message)s"
     logging.basicConfig(level=getattr(logging, args.log_level), format=_format)
 
     orbit = BKOrbit(None, args.astfile)
@@ -499,11 +499,11 @@ def tnodb_stack():
     r_min = r_max = (np.sqrt(dra ** 2 + ddec ** 2)).to('arcsec/hour').value
     angle_min = angle_max = np.arctan2(ddec, dra).to('degree').value
     logging.info(f"Optimal rate dRA:{dra.to('arcsec/hour'):3.1f} dDEC:{ddec.to('arcsec/hour'):3.1f}")
-    r_min -= args.rate_spacing * ceil(args.num_of_rates/2)
-    r_max += args.rate_spacing * floor(args.num_of_rates/2)
+    r_min -= args.rate_spacing * (args.num_of_rates - 1)
+    r_max += args.rate_spacing * (args.num_of_rates - 1)
     rates = shift_rates(r_min, r_max, args.rate_spacing, angle_min, angle_max, 0.1)
     logging.debug(f'Shift-and-Stacking the following list of rate/angle pairs: '
-                 f'{[(rate["rate"], rate["angle"]) for rate in rates]}')
+                  f'{[(rate["rate"], rate["angle"]) for rate in rates]}')
     stack_function = swarp if args.swarp else shift
     stack(images, stack_function, rates, orbit.name, 0,
     n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
@@ -807,15 +807,9 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
         for rate in rates:
             dra = rate['rate'] * np.cos(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             ddec = rate['rate'] * np.sin(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
-            if time_groups:
-                int_rate = int(rate["rate"] * 10)
-                int_angle = int((rate['angle'] % 360) * 10)
-                expnum = f'{int(pointing)}{int_rate:02d}{int_angle:04d}{index}'
-                output_filename = f'{pointing}_{expnum}p{ccd:02d}.fits'
-            else:
-                expnum = reference_hdu[0].header.get('EXPID', 0)
-                output_filename = f'STACK-{pointing}-{index:02d}-{stack_mode}' \
-                                  f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits.fz'
+            expnum = reference_hdu[0].header.get('EXPID', 0)
+            output_filename = f'STACK-{pointing}-{index:02d}-{stack_mode}' \
+                              f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits'
             # Removed check of VOSpace as now running on arcade
             output_dir = "./"
             output_filename = os.path.join(output_dir, output_filename)
@@ -823,7 +817,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
                                     stacking_mode=stack_mode, section_size=section_size, 
                                     astheads=astheads)
             date = mid_exposure_mjd(output[0])
-            frame_id = f"{pointing[0:2]}{date.strftime('%y%m%d')}{ccd:02d}"
+            frame_id = f"{date.strftime('%y%m%d')}{ccd:02d}{index:02d}"
             logging.debug(f'Got stack result {output}, writing to {output_filename}')
             # Keep a history of which visits when into the stack.
             output[0].header['SOFTWARE'] = f'{__name__}-{__version__}'
