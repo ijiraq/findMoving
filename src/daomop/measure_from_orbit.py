@@ -16,6 +16,7 @@ from astropy.wcs import WCS
 from mp_ephem import BKOrbit, EphemerisReader
 from mp_ephem.ephem import Observation
 from vos import Client
+from tempfile import NamedTemporaryFile
 
 from . import settings
 from . import util
@@ -158,21 +159,23 @@ def main(**kwargs):
         image = images[frame_no]
         with fits.open(image) as _hdulist:
             exptime = _hdulist[0].header.get('EXPTIME', 0.0)
-        ds9.set('regions', f'image; circle {x} {y} 20')
+        ds9.set('regions', f'image; circle {x} {y} 20 # color=blue ')
         hdulist = ds9.get_pyfits()
-        hdulist[0].writeto('temp.fits', overwrite=True)
-        centroid = not note1 == 'H'
-        phot = daophot.phot_mag('temp.fits',
-                                [x, ], [y, ],
-                                aperture=5,
-                                sky_inner_radius=15,
-                                sky_annulus_width=10,
-                                apcor=0.3,
-                                zmag=26.7,
-                                maxcount=1000,
-                                extno=0,
-                                exptime=exptime,
-                                centroid=centroid)
+        with NamedTemporaryFile(mode='w+b', delete=False, suffix=".fits") as fobj:
+            hdulist[0].writeto(fobj.name, overwrite=True)
+            centroid = not note1 == 'H'
+            phot = daophot.phot_mag(fobj.name,
+                                    [x, ], [y, ],
+                                    aperture=5,
+                                    sky_inner_radius=15,
+                                    sky_annulus_width=10,
+                                    apcor=0.3,
+                                    zmag=26.7,
+                                    maxcount=1000,
+                                    extno=0,
+                                    exptime=exptime,
+                                    centroid=centroid)
+            os.unlink(fobj.name)
         
         phot_failure = (phot['PIER'][0] != 0 or
                         phot.mask[0]['MAG'] or
@@ -210,7 +213,8 @@ def main(**kwargs):
             logging.warning(ex)
             logging.warning(f"Got: {ra},{dec}")
 
-        record_key = os.path.basename(image)
+        # record_key = os.path.basename(image)
+        record_key = obsdate
         obs[record_key] = (Observation(
             null_observation=key == 'r',
             provisional_name=kwargs['provisional_name'],
@@ -244,14 +248,14 @@ def _main(**kwargs):
     unique_obs = []
     for ob in kwargs['orbit'].observations:
         record_key = ob.date.mpc
-        try:
-            record_key =ob.comment.frame
-            if len(record_key)  > 0:
-                if record_key in obs:
-                    logging.warning(f"Duplicate frame value: {record_key}")
-                    continue
-        except:
-            pass
+        #try:
+        #    record_key = ob.comment.frame
+        #    if len(record_key) > 0:
+        #        if record_key in obs:
+        #            logging.warning(f"Duplicate frame value: {record_key}")
+        #            continue
+        #except:
+        #    pass
         obs[record_key] = ob
 
     orb = BKOrbit([ obs[x] for x in obs])
