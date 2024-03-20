@@ -27,18 +27,22 @@ WORKDIR /opt
 
 RUN apt-get install -yq python3-wxgtk4.0
 RUN pip install 'astropy>=5.1.0,<6.0.0'
-RUN apt-get install -qy python3-pyraf
+# RUN apt-get install -qy python3-pyraf
 COPY canfar_src/iraf.sh /etc/profile.d/
 RUN ln -s /usr/lib/iraf/bin /usr/lib/iraf/bin.linux
 RUN ln -s /usr/lib/iraf/noao/bin /usr/lib/iraf/noao/bin.linux
 RUN ln -s /usr/lib/iraf/unix/bin /usr/lib/iraf/unix/bin.linux
 
+RUN pip install 'astropy<=6' ccdproc pyraf vos matplotlib ephem pyds9 mp_ephem ossos
+
 ARG BUILDDIR=/opt/findMoving
 RUN mkdir -p ${BUILDDIR}
 WORKDIR ${BUILDDIR}
 COPY src  ./
+ARG iraf=/usr/lib/iraf
+ARG IRAFARCH=linux
+ARG USER=`whoami`
 RUN python3 -m pip install -r requirements.txt
 RUN python3 setup.py install 
 
-CMD /skaha/startup.sh
-
+ENTRYPOINT ["/skaha/startup.sh"]
