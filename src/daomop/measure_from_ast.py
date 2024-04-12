@@ -186,6 +186,7 @@ def main(**kwargs):
 
         record_key = os.path.basename(frame)
         obs[record_key] = (Observation(
+            survey_code = 'C',
             null_observation=key == 'r',
             provisional_name=kwargs['provisional_name'],
             note1=note1,
@@ -198,9 +199,10 @@ def main(**kwargs):
             band='r',
             observatory_code='568',
             comment=None,
-            xpos=x,
-            ypos=y,
+            xpos=None,
+            ypos=None,
             frame=os.path.basename(frame),
+            likelihood=-1,
             astrometric_level=2))
         ds9.set('frame next')
     return obs
@@ -211,7 +213,7 @@ def _main(**kwargs):
     ast_filename = kwargs['ast_filename']
 
     logging.info(f"Attempting measures of {kwargs['provisional_name']}, will write to {ast_filename}")
-    all_observations = EphemerisReader().read(ast_filename)
+    all_observations = EphemerisReader().read(ast_filename) # type: list[Observation]
     orbit = BKOrbit(all_observations)
     logging.info(orbit.summarize())
 
@@ -241,15 +243,16 @@ def _main(**kwargs):
     # replace existing measurement lines with new ones.
     logging.info(f"{new_obs}")
     for record_index in new_obs:
-        ossos_observations[record_index] = new_obs[record_index]
+        ossos_observations[record_index] = new_obs[record_index] # type: list[Observation]
 
     # save beside input .ast file
     output_ast_filename = ast_filename+"_vetted"
     with open(output_ast_filename, 'w') as mpc_obj:
         for record in ossos_observations:
-            mpc_obj.write(ossos_observations[record].to_string() + "\n")
+            observation  = ossos_observations[record] # type: Observation
+            mpc_obj.write(observation.to_tnodb() + "\n")
         for observation in non_ossos_observations:
-            mpc_obj.write(observation.to_string() + "\n")
+            mpc_obj.write(observation.to_tnodb() + "\n")
     try:
         orbit = BKOrbit(None, ast_filename=output_ast_filename)
         logging.info(orbit.summarize())

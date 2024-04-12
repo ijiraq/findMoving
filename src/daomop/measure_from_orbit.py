@@ -40,6 +40,22 @@ def get_ds9(name):
     return pyds9.DS9(target=name, start=False)
 
 
+def mark_planted_sources(ds9, header):
+
+    try:
+        plant_list_column_names = "index ra dec x y rate angle rate_ra rate_dec mag psf_amp g_i".split()
+        WARPDIR = header['WARPD001']
+        PLANTFILE = header['PLANT001']
+        plant_table = Table.read(f"{WARPDIR}/{PLANTFILE}", format='ascii', names=plant_list_column_names)
+        for row in plant_table:
+            ra = row['ra']
+            dec = row['dec']
+            ds9.set('regions', f'icrs; circle({ra},{dec},0.2") # color=cyan width=2')
+    except Exception as ex:
+        logging.warning(f"Failed to mark planted sources: {ex}")
+    return
+
+
 def main(**kwargs):
     """
 
@@ -87,7 +103,7 @@ def main(**kwargs):
                 uncertainty_ellipse = 3, 3, 0
                 rad = int(3/0.17)
             x, y = wcs_dict[image].all_world2pix(ra, dec, 0)
-            if x < 30 or x > 2048 - 30 or y < 30 or y > 4176 - 30:
+            if x < 0 or x > 2048 or y < 0 or y > 4176 :
                 logging.warning(f"Skipping (image) as too near chip edge")
                 continue
             cutsize = max(100, 3*rad)
@@ -107,6 +123,7 @@ def main(**kwargs):
                                f'{uncertainty_ellipse[0]}",'
                                f'{uncertainty_ellipse[1]}",'
                                f'{uncertainty_ellipse[2]})')
+            mark_planted_sources(ds9, hdulist[0].header)
             ds9.set(f'pan to {ra} {dec} wcs icrs')
     if not len(ds9.get('frame'))> 0:
         return {}
@@ -216,6 +233,9 @@ def main(**kwargs):
         # record_key = os.path.basename(image)
         record_key = obsdate
         obs[record_key] = (Observation(
+            discovery=False,
+            likelihood=-1,
+            survey_code='C',
             null_observation=key == 'r',
             provisional_name=kwargs['provisional_name'],
             note1=note1,
@@ -227,14 +247,21 @@ def main(**kwargs):
             mag_err=None,
             band='r',
             observatory_code='568',
-            comment=None,
-            xpos=x,
-            ypos=y,
+            comment='stack',
+            xpos=-1,
+            ypos=-1,
             frame=frame,
             astrometric_level=2))
-        discovery = False
         ds9.set('frame next')
+        update_ast_file(obs, kwargs['tlf_filename'])
     return obs
+
+
+def update_ast_file(obs: dict, output_ast_filename: str) -> None:
+    with open(output_ast_filename, 'w') as mpc_obj:
+        for record in obs:
+            mpc_obj.write(obs[record].to_tnodb() + "\n")
+    return
 
 
 def _main(**kwargs):
@@ -280,19 +307,12 @@ def _main(**kwargs):
         if not len(kwargs['images']) > 0:
             continue
         kwargs['orbit'] = BKOrbit(None, ast_filename=output_ast_filename)
+        kwargs['tlf_filename'] = f"{kwargs['provisional_name']}.inp"
         new_obs = main(**kwargs)
         logging.debug(f"{new_obs}")
         for record_index in new_obs:
             obs[record_index] = new_obs[record_index]
-
-        with open(output_ast_filename, 'w') as mpc_obj:
-            for record in obs:
-                mpc_obj.write(obs[record].to_string() + "\n")
-        try:
-            orbit = BKOrbit(None, ast_filename=output_ast_filename)
-            logging.info(orbit.summarize())
-        except Exception as ex:
-            logging.error(f"{ex}")
+        update_ast_file(obs, output_ast_filename)
 
 
 def get_valid_obs_count(observations):

@@ -490,6 +490,7 @@ def tnodb_stack():
     images = sort_images(args.images)
     base_hdu = list(images.values())[0]
     orbit.predict(mid_exposure_mjd(base_hdu[0]))
+    position_uncertainty = 2*orbit.dra/(0.185*units.arcsec)
     coord1 = orbit.coordinate
     orbit.predict(mid_exposure_mjd(list(images.values())[-1][0]))
     coord2 = orbit.coordinate
@@ -505,10 +506,11 @@ def tnodb_stack():
     logging.debug(f'Shift-and-Stacking the following list of rate/angle pairs: '
                   f'{[(rate["rate"], rate["angle"]) for rate in rates]}')
     stack_function = swarp if args.swarp else shift
+    section_size = max(args.section_size, int(ceil(position_uncertainty)))
     stack(images, stack_function, rates, orbit.name, 0,
     n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
     time_groups=args.time_groups, use_swarp=args.swarp, rectify=args.rectify,
-    section_size=args.section_size, clip=args.clip, mask=args.mask,
+    section_size=section_size, clip=args.clip, mask=args.mask,
     centre = get_centre(list(images.values())[len(images)//2], orbit))
 
 
@@ -603,6 +605,7 @@ def sort_images(images) -> OrderedDict:
             image = os.path.basename(filename)
             full_hdus[image] = hdulist
             full_hdus[image][0].header['IMAGE'] = image
+            full_hdus[image][0].header['WARPD'] = os.path.dirname(filename)
             mjds[image] = time.Time(mid_exposure_mjd(hdulist[0]))
         except Exception as ex:
             logging.error(str(ex))
@@ -808,7 +811,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             dra = rate['rate'] * np.cos(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             ddec = rate['rate'] * np.sin(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             expnum = reference_hdu[0].header.get('EXPID', 0)
-            output_filename = f'STACK-{pointing}-{index:02d}-{stack_mode}' \
+            output_filename = f'STACK-{pointing}-{index:02d}-{ccd:02d}-{stack_mode}' \
                               f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits'
             # Removed check of VOSpace as now running on arcade
             output_dir = "./"
@@ -838,6 +841,11 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
 
             for i_index, image_name in enumerate(hdus):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
+                parts = image_name.split('-')
+                pccd = int(parts[3].split('.')[0])
+                plant_list = f"{parts[1]}p{pccd:02d}-{parts[2]}p{pccd:02d}.plantList"
+                output[0].header[f'plant{i_index:03d}'] = plant_list
+                output[0].header[f'warpd{i_index:03d}'] = hdus[image_name][0].header['WARPD']
             output.writeto(output_filename, overwrite=True)
 
     return 0
