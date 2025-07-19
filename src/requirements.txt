@@ -6,4 +6,4 @@ matplotlib
 ephem
 pyds9
 mp_ephem
-ossos
+# ossos
