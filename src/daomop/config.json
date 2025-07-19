@@ -4,7 +4,7 @@
       "view_layout": "vertical",
       "bg": "black",
       "view_info": "yes",
-      "view_magnifier": "no",
+      "view_magnifier": "yes",
       "view_buttons": "no",
       "view_panner": "no",
       "view_filename": "yes",
@@ -17,7 +17,7 @@
     },
     "PREF": {
       "frame_lock": "wcs",
-      "zoom_to": 4,
+      "zoom_to": 5,
       "scale": "linear",
       "scale_mode": "zscale",
       "cmap_lock": "yes",
