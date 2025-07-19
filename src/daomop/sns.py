@@ -449,7 +449,7 @@ def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
 
 
 def mid_exposure_mjd(hdu):
-    return time.Time(hdu.header['DATE-AVG'])
+    return time.Time(hdu.header['DATE-AVG'], scale='tai')
     # mjd_start = time.Time(hdu.header['MJD-STR'], format='mjd')
     # mjd_end = time.Time(hdu.header['MJD-END'], format='mjd')
     # return mjd_start + (mjd_end - mjd_start) / 2.0
