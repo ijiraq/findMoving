@@ -4,7 +4,6 @@ import tempfile
 import warnings
 
 warnings.simplefilter("ignore")
-from pyraf import iraf
 from astropy.io import fits
 from astropy.io import ascii
 
@@ -57,8 +56,7 @@ def phot(fits_filename, x_in, y_in, aperture=15, sky_inner_radius=20, sky_annulu
 
     # get the filter for this image
     filter_name = input_hdulist[0].header.get('FILTER',
-                                                  input_hdulist[0].header.get('FILTER',
-                                                                              'DEFAULT'))
+                                              input_hdulist[0].header.get('FILTER', 'DEFAULT'))
 
     # Some nominal CFHT zeropoints that might be useful
     zeropoints = {"I": 25.77,
@@ -71,17 +69,15 @@ def phot(fits_filename, x_in, y_in, aperture=15, sky_inner_radius=20, sky_annulu
                   'r.MP9601': 31.9,
                   'gri.MP9603': 33.520}
     if zmag is None:
-        logging.warning(f"No zmag supplied to daophot, looking 'PHOTZP' or using default value based on FILTER.")
-        zmag = input_hdulist[0].header.get('PHOTZP', zeropoints[filter_name])
-        logging.warning(f"Setting zmag to: {zmag}")
+        try:
+            zmag = input_hdulist[0].header['PHOTZP']
+        except KeyError:
+            zmag = zeropoints.get(filter_name, zeropoints["DEFAULT"])
+            logging.warning(f"PHOTZP keyword not found, setting zmag to default value: {zmag}")
         # check for magic 'zeropoint.used' files
 
-    photzp = input_hdulist[0].header.get('PHOTZP', zeropoints.get(filter_name, zeropoints["DEFAULT"]))
-    if zmag != photzp:
-        logging.warning(("zmag sent to daophot: ({}) "
-                         "doesn't match PHOTZP value in image header: ({})".format(zmag, photzp)))
-
     # setup IRAF to do the magnitude/centroid measurements
+    from pyraf import iraf # type: ignore
     iraf.set(uparm="./")
     iraf.digiphot()
     iraf.apphot()
@@ -89,7 +85,7 @@ def phot(fits_filename, x_in, y_in, aperture=15, sky_inner_radius=20, sky_annulu
 
     iraf.photpars.apertures = aperture
     iraf.photpars.zmag = zmag
-    iraf.datapars.datamin = -100
+    iraf.datapars.datamin = -5000
     iraf.datapars.datamax = maxcount
     iraf.datapars.exposur = ""
     iraf.datapars.itime = exptime
