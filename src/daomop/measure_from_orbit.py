@@ -2,27 +2,26 @@
 Create an Observation using ds9 displaying an image of a KBO source.
 """
 import argparse
+import sys
+import os
 import logging
-import os, sys
-from mp_ephem import BKOrbit
-import numpy
 import math
+from typing import List
+
 import pyds9
-from astropy import units
 from astropy.io import fits
 from astropy.table import Table
 from astropy.time import Time
 from astropy.wcs import WCS
-from mp_ephem import BKOrbit, EphemerisReader
-from mp_ephem.ephem import Observation
-from vos import Client
-from tempfile import NamedTemporaryFile
-
+from astropy import units
+from mp_ephem import BKOrbit
 from . import settings
 from . import util
+from . import daophot
+from mp_ephem.ephem import Observation
+from dataclasses import dataclass, field
 
 config = settings.AppConfig()
-
 
 
 def start_ds9(name):
@@ -56,6 +55,166 @@ def mark_planted_sources(ds9, header):
     return
 
 
+def create_observation_record(image:str, provisional_name:str, x:float, y:float, note1:str,
+                              aperture:float, apcor:float, comment:str='stack', likelihood:int=-1):
+    """
+    Create an Observation record from the given hdulist, RA/DEC, and other context.
+    """
+    obs_mag = None
+    obs_mag_err = None
+    cen_x = x
+    cen_y = y
+    filter_band_map = {'r2': 'r', 'default': 'r'}
+    observatory_codes = {'CFHT': 'T14', 'default': 'T14'}
+    try:
+        centroid = not note1.lower() == 'h'
+        phot = daophot.phot_mag(image,
+                                [x, ], [y, ],
+                                aperture=aperture,
+                                sky_inner_radius=15,
+                                sky_annulus_width=10,
+                                apcor=apcor,
+                                zmag=None,
+                                maxcount=10000,
+                                extno=1,
+                                centroid=centroid)
+        phot_failure = (phot['PIER'][0] != 0 or phot.mask[0]['MAG'] or phot.mask[0]['MERR'])
+        sky_failure = phot['SIER'][0] != 0
+        cen_failure = phot['CIER'][0] != 0
+        if phot_failure or sky_failure or cen_failure:
+            logging.warning(f"iraf.daophot.phot error:\n {phot}")
+            note1 = "H"
+        else:
+            cen_x = phot['XCENTER'][0]
+            cen_y = phot['YCENTER'][0]
+            obs_mag = phot['MAG'][0]
+            obs_mag_err = phot['MERR'][0]
+    except Exception as ex:
+        logging.warning(f"Photometry failed: {ex}")
+        note1 = "H"
+
+    with fits.open(image) as hdulist:
+        wcs = WCS(hdulist[1].header)
+        band = hdulist[0].header.get('FILTER', 'default')
+        band = filter_band_map.get(band, filter_band_map['default'])
+        observatory_code = observatory_codes.get(hdulist[0].header.get('ORIGIN', 'CFHT'),
+                                                 observatory_codes['default'])
+        astrometric_level = hdulist[0].header.get('ASTLEVEL', 0)
+        xoffset = hdulist[0].header.get('XOFFSET', 0.0)
+        yoffset = hdulist[0].header.get('YOFFSET', 0.0)
+        obsdate = Time(Time(hdulist[0].header['DATE-AVG'], scale='tai').mjd, format='mjd', precision=5).mpc
+        frame_val = hdulist[0].header.get('FRAMEID', os.path.basename(image))
+        ra_val, dec_val = wcs.all_pix2world(cen_x, cen_y, 1)
+    return Observation(
+        discovery=False,
+        likelihood=likelihood,
+        survey_code='C',
+        null_observation=note1 == 'r',
+        provisional_name=provisional_name,
+        note1=note1,
+        note2='C',
+        date=obsdate,
+        ra=ra_val*units.degree,
+        dec=dec_val*units.degree,
+        mag=obs_mag,
+        mag_err=obs_mag_err,
+        band=band,
+        observatory_code=observatory_code,
+        comment=comment,
+        xpos=cen_x+xoffset,
+        ypos=cen_y+yoffset,
+        frame=frame_val,
+        astrometric_level=astrometric_level
+    )
+
+@dataclass
+class FakeDS9:
+    """
+    A fake DS9 class to use when we don't have a ds9 instance.
+    """
+    _x: List[float] = field(default_factory=list)
+    _y: List[float] = field(default_factory=list)
+    _frame: int = -1
+
+    @property
+    def frame(self) -> int:
+        return self.frame
+
+    @frame.setter
+    def frame(self, value: str|int):
+        steps = {'next': self._frame+1,
+                 'prev': self._frame-1,
+                 'new': self._frame+1,
+                 'first': 0,
+                 'last': len(self._x)-1}
+        try:
+            self._frame = int(value)
+        except ValueError:
+            self._frame = steps.get(value.lower(),
+                                    self._frame)
+
+    @property
+    def x(self) -> float:
+        if self._frame < 0 or self._frame >= len(self._x):
+            return None
+        return self._x[self._frame]
+
+    @property
+    def y(self) -> float:
+        if self._frame < 0 or self._frame >= len(self._y):
+            return None
+        return self._y[self._frame]
+
+    @x.setter
+    def x(self, value: str|float|int):
+        """
+        Set the x coordinate for the current frame.
+        :param value: The x coordinate as a string.
+        """
+        if self._frame < 0:
+            logging.warning("FakeDS9.set_x called with no frame set.")
+            return
+        try:
+            self._x[self._frame] = float(value)
+        except IndexError:
+            self._x.append(float(value))
+        except ValueError:
+            logging.error(f"Invalid x value: {value}")
+
+    @y.setter
+    def y(self, value: str|float|int):
+        """
+        Set the y coordinate for the current frame.
+        :param value: The y coordinate as a string.
+        """
+        if self._frame < 0:
+            logging.warning("FakeDS9.set_y called with no frame set.")
+            return
+        try:
+            self._y[self._frame] = float(value)
+        except IndexError:
+            self._y.append(float(value))
+        except ValueError:
+            logging.error(f"Invalid y value: {value}")
+
+    def set(self, *args, **kwargs):
+        values = args[0].split()
+        if not hasattr(self, values[0]):
+            logging.debug(f"FakeDS9.set called with unknown attribute: {values[0]}")
+            return
+        setattr(self, values[0], values[1])  # Set the attribute based on the first value
+
+    def set_pyfits(self, *args, **kwargs):
+        logging.debug(f"FakeDS9.set_pyfits called with args: {args}, kwargs: {kwargs}")
+
+    def get(self, *args, **kwargs):
+        logging.debug(f"FakeDS9.get called with args: {args}, kwargs: {kwargs}")
+        if 'imexam' in args[0]:
+            return f'a {self.x} {self.y}'  # Simulate a key press at (x, y)
+        if 'frame' in args[0]:
+            return self._frame + 1 # Return the current frame number (1-indexed)
+        return None
+
 def main(**kwargs):
     """
 
@@ -63,14 +222,19 @@ def main(**kwargs):
     :type orbit: BKOrbit
     :return:
     """
-    from daomop import daophot
     orbit = kwargs['orbit']
     images = kwargs['images']
+    aperture = kwargs['aperture']
+    apcor = kwargs['apcor']
+    auto_process = kwargs.get('auto_process', False) # if True do not display the images, just process them.
 
     # orbit = kwargs.get('orbit', None)
     # isinstance(BKOrbit, orbit)
 
-    ds9 = get_ds9('validate')
+    if not auto_process:
+        ds9 = get_ds9('validate')
+    else:
+        ds9 = FakeDS9()
     # Load the 3 images associated with this point/ccd/rate/angle set.
 
     wcs_dict = {}
@@ -86,11 +250,11 @@ def main(**kwargs):
                 wcs_header_filename = image.replace('.fits','.mega.head')
                 wcs_header = fits.Header.fromtextfile(wcs_header_filename)
                 wcs_dict[image] = WCS(wcs_header)
+                logging.debug(f"using wcs in {wcs_header_filename}")
             except Exception as ex:
                 wcs_header = header
-                wcs_header_filename = image
                 wcs_dict[image] = WCS(wcs_header)
-                logging.debug(f"using original wcs")
+                logging.debug(f"using wcs in {image}")
             if orbit is not None:
                 orbit.predict(obsdate)
                 ra = orbit.coordinate.ra.degree
@@ -102,16 +266,16 @@ def main(**kwargs):
             else:
                 uncertainty_ellipse = 3, 3, 0
                 rad = int(3/0.17)
-            x, y = wcs_dict[image].all_world2pix(ra, dec, 0)
-            if x < 0 or x > 2048 or y < 0 or y > 4176 :
-                logging.warning(f"Skipping (image) as too near chip edge")
-                continue
             cutsize = max(100, 3*rad)
+            x, y = wcs_dict[image].all_world2pix(ra, dec, 0)
+            if x < -cutsize or x > 2048+cutsize or y < -cutsize or y > 4176+cutsize :
+                logging.warning(f"Skipping {image}: predicted source location ({x},{y}) +/- ({rad}) off image")
+                continue
             x1 = int(max(0, x-cutsize))
             x2 = int(min(header['NAXIS1'], x+cutsize))
             y1 = int(max(0, y-cutsize))
             y2 = int(min(header['NAXIS2'], y+cutsize))
-            offset[image] = x1, y1 
+            offset[image] = x1, y1
             wcs_header['CRPIX1'] -= offset[image][0]
             wcs_header['CRPIX2'] -= offset[image][1]
             display_hdu = fits.HDUList([fits.PrimaryHDU(data=hdulist[1].data[y1:y2,x1:x2],
@@ -119,10 +283,17 @@ def main(**kwargs):
             ds9.set('frame new')
             displayed_images.append(image)
             ds9.set_pyfits(display_hdu)
+            ds9.set('contour smooth 6')
+            ds9.set('contour nlevels 7')
+            ds9.set('contour generate')
+            ds9.set('contour yes')
+            if auto_process:
+                ds9.set(f'x {x-offset[image][0]}')
+                ds9.set(f'y {y-offset[image][1]}')
             ds9.set('regions', f'icrs; ellipse({ra},{dec},'
                                f'{uncertainty_ellipse[0]}",'
                                f'{uncertainty_ellipse[1]}",'
-                               f'{uncertainty_ellipse[2]})')
+                               f'{uncertainty_ellipse[2]}) # color=red width=2')
             mark_planted_sources(ds9, hdulist[0].header)
             ds9.set(f'pan to {ra} {dec} wcs icrs')
     if not len(ds9.get('frame'))> 0:
@@ -174,84 +345,15 @@ def main(**kwargs):
         note1 = allowed_keys[key][0]
         frame_no = int(ds9.get('frame')) - 1
         image = images[frame_no]
-        with fits.open(image) as _hdulist:
-            exptime = _hdulist[0].header.get('EXPTIME', 0.0)
-        ds9.set('regions', f'image; circle {x} {y} 20 # color=blue ')
-        hdulist = ds9.get_pyfits()
-        with NamedTemporaryFile(mode='w+b', delete=False, suffix=".fits") as fobj:
-            hdulist[0].writeto(fobj.name, overwrite=True)
-            centroid = not note1 == 'H'
-            phot = daophot.phot_mag(fobj.name,
-                                    [x, ], [y, ],
-                                    aperture=5,
-                                    sky_inner_radius=15,
-                                    sky_annulus_width=10,
-                                    apcor=0.3,
-                                    zmag=26.7,
-                                    maxcount=1000,
-                                    extno=0,
-                                    exptime=exptime,
-                                    centroid=centroid)
-            os.unlink(fobj.name)
-        
-        phot_failure = (phot['PIER'][0] != 0 or
-                        phot.mask[0]['MAG'] or
-                        phot.mask[0]['MERR'])
-        sky_failure = phot['SIER'][0] != 0
-        cen_failure = phot['CIER'][0] != 0
-
-        if phot_failure or sky_failure or cen_failure:
-            logging.warning(f"iraf.daophot.phot error:\n {phot}")
-            cen_x = x
-            cen_y = y
-            obs_mag = None
-            obs_mag_err = None
-            note1 = "H"
-        else:
-            cen_x = phot['XCENTER'][0]
-            cen_y = phot['YCENTER'][0]
-            obs_mag = phot['MAG'][0]
-            obs_mag_err = phot['MERR'][0]
-
-        with fits.open(image) as _hdu_list:
-            primary_hdu = _hdu_list[0]
-            obsdate = Time(Time(primary_hdu.header['DATE-AVG'], scale='tai').mjd,
-                       format='mjd',
-                       precision=6).mpc
-            frame = primary_hdu.header.get('FRAMEID', os.path.basename(image))
-        try:
-            ra, dec = wcs_dict[image].all_pix2world(cen_x + offset[image][0],
-                                                    cen_y + offset[image][1],
-                                                    1)
-            ds9.set('regions', f'icrs; circle({ra},{dec},0.2")')
-            logging.debug(f"Got {ra},{dec} from {cen_x},{cen_y}")
-        except Exception as ex:
-            logging.warning(f"Failure converting {cen_x, cen_y} to RA/DEC for {image}")
-            logging.warning(ex)
-            logging.warning(f"Got: {ra},{dec}")
-
-        # record_key = os.path.basename(image)
-        record_key = obsdate
-        obs[record_key] = (Observation(
-            discovery=False,
-            likelihood=-1,
-            survey_code='C',
-            null_observation=key == 'r',
-            provisional_name=kwargs['provisional_name'],
-            note1=note1,
-            note2='C',
-            date=obsdate,
-            ra=ra*units.degree,
-            dec=dec*units.degree,
-            mag=obs_mag,
-            mag_err=None,
-            band='r',
-            observatory_code='568',
-            comment='stack',
-            xpos=-1,
-            ypos=-1,
-            frame=frame,
-            astrometric_level=2))
+        # put x,y from the ds9 coordinate system into the image file coordinate system.
+        x += offset[image][0]
+        y += offset[image][1]
+        obs_record = create_observation_record(image,
+                                               kwargs['provisional_name'], x, y, note1,
+                                               aperture, apcor, comment='stack')
+        ds9.set('regions', f'image; circle {x-offset[image][0]} {y-offset[image][1]} 4 # color=blue width=2')
+        record_key = obs_record.date
+        obs[record_key] = obs_record
         ds9.set('frame next')
         update_ast_file(obs, kwargs['tlf_filename'])
     return obs
@@ -265,27 +367,18 @@ def update_ast_file(obs: dict, output_ast_filename: str) -> None:
 
 
 def _main(**kwargs):
-    start_ds9('validate')
+    if not kwargs.get('auto_process', False):
+        start_ds9('validate')
     ast_filename = kwargs['ast_filename']
     output_ast_filename = ast_filename
     
     logging.info(f"Attempting measures of {kwargs['provisional_name']}, will write to {ast_filename}")
-    obs = {}
     kwargs['orbit'] = BKOrbit(None, ast_filename)
-    unique_obs = []
+    obs = {}
     for ob in kwargs['orbit'].observations:
-        record_key = ob.date.mpc
-        #try:
-        #    record_key = ob.comment.frame
-        #    if len(record_key) > 0:
-        #        if record_key in obs:
-        #            logging.warning(f"Duplicate frame value: {record_key}")
-        #            continue
-        #except:
-        #    pass
-        obs[record_key] = ob
+        obs[ob.date.mpc] = ob
 
-    orb = BKOrbit([ obs[x] for x in obs])
+    orb = BKOrbit([obs[x] for x in obs])
     logging.info(orb.summarize())
     logging.info(f"Measuring on {len(kwargs['images'])} images, {kwargs['nframes']} at a time.")
     step_size = kwargs['nframes']
@@ -338,12 +431,19 @@ def run():
     main_parser.add_argument('--stride', type=int, default=1, help="Skip this number of images per step while doing list of images")
     main_parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'ERROR'], default='INFO')
     main_parser.add_argument('--skip', action='store_true', help="Skip images whose frame_id values are already in the astrometry input file.")
+    main_parser.add_argument('--apcor', type=float, help="Set the aperture correction value", default=0.25)
+    main_parser.add_argument('--aperture', type=float, help="Aperture to measure flux with", default=5.0)
+    main_parser.add_argument('--photzp', type=str, help="Header keyword with zeropoint", default='PHOTZP')
+    main_parser.add_argument('--auto-process', action='store_true', help="Do not display images, just process them.")
+
     args = main_parser.parse_args()
     _format="%(asctime)s :: %(levelname)s :: %(module)s.%(funcName)s:%(lineno)d %(message)s"
     if args.log_level == 'INFO':
          _format="%(message)s"
     logging.basicConfig(level=getattr(logging, args.log_level), format=_format)
-    _main(images=args.images, ast_filename=args.ast_filename, provisional_name=args.provisonal_name, nframes=args.nframes, stride=args.stride, skip=args.skip)
+    _main(images=args.images, ast_filename=args.ast_filename, provisional_name=args.provisonal_name,
+          nframes=args.nframes, stride=args.stride, skip=args.skip, apcor=args.apcor,
+          aperture=args.aperture, photzp=args.photzp, auto_process=args.auto_process)
 
 
 if __name__ == '__main__':
