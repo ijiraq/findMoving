@@ -811,7 +811,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             dra = rate['rate'] * np.cos(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             ddec = rate['rate'] * np.sin(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             expnum = reference_hdu[0].header.get('EXPID', 0)
-            output_filename = f'STACK-{pointing}-{index:02d}-{ccd:02d}-{stack_mode}' \
+            output_filename = f'{n_sub_stacks:02d}-STACK-{pointing}-{index:02d}-{ccd:02d}-{stack_mode}' \
                               f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits'
             # Removed check of VOSpace as now running on arcade
             output_dir = "./"

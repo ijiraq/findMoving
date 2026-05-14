@@ -2,7 +2,7 @@
 DEVNAME = find_moving
 
 NAME = images.canfar.net/uvickbos/$(DEVNAME)
-VERSION = 0.5
+VERSION = 2.1
 
 build: dependencies Dockerfile
 	docker build -t $(NAME):$(VERSION) -f Dockerfile .
