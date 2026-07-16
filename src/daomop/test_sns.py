@@ -1,4 +1,6 @@
 from unittest import TestCase
+from unittest.mock import Mock
+from astropy import units
 from . import sns
 import numpy
 
@@ -13,3 +15,10 @@ class Test(TestCase):
         self.assertEqual(wq.shape[0], image_stack.shape[1])
         self.assertEqual(wq.shape[1], image_stack.shape[2])
         self.assertAlmostEqual(wq[5, 5], 25, 2)
+
+    def test_position_uncertainty_pixels(self):
+        orbit = Mock()
+        orbit.dra = 10 * units.arcsec
+        orbit.ddec = 20 * units.arcsec
+        radius = sns.position_uncertainty_pixels(orbit, 0.2)
+        self.assertAlmostEqual(radius, 200.0)

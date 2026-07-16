@@ -455,6 +455,18 @@ def mid_exposure_mjd(hdu):
     # return mjd_start + (mjd_end - mjd_start) / 2.0
 
 
+def position_uncertainty_pixels(orbit, pixel_scale):
+    """
+    Estimate cutout radius in pixels needed to contain the orbit uncertainty ellipse.
+
+    Uses the larger of the RA and Dec semi-axes at 2-sigma.
+    """
+    pixel_scale = pixel_scale * units.arcsec
+    dra_pix = (2 * orbit.dra / pixel_scale).decompose().value
+    ddec_pix = (2 * orbit.ddec / pixel_scale).decompose().value
+    return max(dra_pix, ddec_pix)
+
+
 def tnodb_stack():
     """Use a tnodb file as the input to stacking."""
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -477,7 +489,10 @@ def tnodb_stack():
     parser.add_argument('--clip', type=int, default=None,
                         help='Mask pixel whose variance is clip times the median variance')
     parser.add_argument('--section-size', type=int, default=256,
-                        help='Break images into section when stacking (conserves memory)')
+                        help='Chunk size when shift/stacking (limits memory use)')
+    parser.add_argument('--cutout-size', type=int, default=None,
+                        help='Size of region around target to extract (pixels). '
+                             'Defaults to max(section-size, orbit uncertainty).')
     parser.add_argument('--time-groups', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
@@ -490,7 +505,7 @@ def tnodb_stack():
     images = sort_images(args.images)
     base_hdu = list(images.values())[0]
     orbit.predict(mid_exposure_mjd(base_hdu[0]))
-    position_uncertainty = 2*orbit.dra/(0.185*units.arcsec)
+    position_uncertainty = position_uncertainty_pixels(orbit, args.pixel_scale)
     coord1 = orbit.coordinate
     orbit.predict(mid_exposure_mjd(list(images.values())[-1][0]))
     coord2 = orbit.coordinate
@@ -506,11 +521,14 @@ def tnodb_stack():
     logging.debug(f'Shift-and-Stacking the following list of rate/angle pairs: '
                   f'{[(rate["rate"], rate["angle"]) for rate in rates]}')
     stack_function = swarp if args.swarp else shift
-    section_size = max(args.section_size, int(ceil(position_uncertainty)))
+    cutout_size = args.cutout_size or max(args.section_size, int(ceil(position_uncertainty)))
+    if cutout_size > args.section_size:
+        logging.info(f'Using {cutout_size} pixel cutout for uncertainty ellipse; '
+                     f'processing in {args.section_size} pixel sections to limit memory use')
     stack(images, stack_function, rates, orbit.name, 0,
     n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
     time_groups=args.time_groups, use_swarp=args.swarp, rectify=args.rectify,
-    section_size=section_size, clip=args.clip, mask=args.mask,
+    section_size=args.section_size, cutout_size=cutout_size, clip=args.clip, mask=args.mask,
     centre = get_centre(list(images.values())[len(images)//2], orbit))
 
 
@@ -586,10 +604,15 @@ def kbmod_stack():
 
     images = sort_images(images)
 
+    # section-size sets the cutout; cap shift/stack chunk size to limit memory use.
+    chunk_size = min(args.section_size, 1024)
+    if chunk_size < args.section_size:
+        logging.info(f'Using {args.section_size} pixel cutout; '
+                     f'processing in {chunk_size} pixel sections to limit memory use')
     stack(images, stack_function, rates, args.pointing, args.ccd,
           n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
           time_groups=args.time_group, swarp=args.swarp, rectify=args.rectify, centre=args.centre,
-          section_size=args.section_size, clip=args.clip, mask=args.mask)
+          section_size=chunk_size, cutout_size=args.section_size, clip=args.clip, mask=args.mask)
 
 
 def sort_images(images) -> OrderedDict:
@@ -617,7 +640,8 @@ def sort_images(images) -> OrderedDict:
 def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
           n_sub_stacks=1, stack_mode='MEAN',
           time_groups=False, use_swarp=False, rectify=False,
-          section_size=128, clip=None, mask=False, centre=SkyCoord(0, 0, unit='degree')):
+          section_size=128, cutout_size=None, clip=None, mask=False,
+          centre=SkyCoord(0, 0, unit='degree')):
     """
     Stack the images in the list using the stack_function and rates.
 
@@ -629,13 +653,15 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
     :param use_swarp:
     :param rectify:
     :param centre:
-    :param section_size:
+    :param section_size: chunk size when shift/stacking (limits memory use).
+    :param cutout_size: size of region extracted around centre (defaults to section_size).
     :param clip:
     :param mask:
     :param rates:
-    :param args:
     :return:
     """
+    if cutout_size is None:
+        cutout_size = section_size
     images = list(full_hdus.keys())
     # if logging.getLogger().getEffectiveLevel() < logging.INFO:
     #     num_of_images = min(6, len(images))
@@ -709,7 +735,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             hdul = hdus[key]
             image = key
             # image = hdul[0].header['IMAGE']
-            box_size = section_size//2
+            box_size = cutout_size // 2
             logging.debug(f'Extracting from {image} box of 1/2 width {box_size} pixels around {centre}')
             w = WCS(astheads[image])
             try:
