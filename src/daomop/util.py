@@ -6,6 +6,8 @@ import numpy as np
 import re
 from pathlib import Path
 import os
+from astropy import time
+from astropy.time import Time
 
 base_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                       fromfile_prefix_chars='@',
@@ -118,3 +120,16 @@ def parse_rerun(basedir, rerun):
     output_rerun = os.path.join(basedir, 'rerun', output_rerun)
 
     return input_rerun, output_rerun
+
+
+def mid_exposure_mjd(hdu):
+    header = hdu.header
+    if 'DATE-AVG' in header:
+        return time.Time(header['DATE-AVG'], scale='tai')
+    mjd_start = time.Time(header['MJD-OBS'], format='mjd', scale='utc')
+    mjd_end = time.Time(header['MJDEND'], format='mjd', scale='utc')
+    return (mjd_start + (mjd_end - mjd_start) / 2.0).tai
+
+
+def mid_exposure_mpc(hdu, precision=5):
+    return Time(mid_exposure_mjd(hdu).utc, format='mjd', precision=precision).mpc

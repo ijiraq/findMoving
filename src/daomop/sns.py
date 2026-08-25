@@ -12,7 +12,7 @@ from ccdproc import CCDData, wcs_project, Combiner
 from mp_ephem import BKOrbit
 from . import util
 from math import cos, ceil, floor
-from .util import get_image_list
+from .util import get_image_list, mid_exposure_mjd
 from .version import __version__
 import warnings
 import re
@@ -446,13 +446,6 @@ def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
         for dr in np.linspace(r_min, r_max, int((r_max - r_min) / r_step) + 1):
             rates.append({'rate': dr, 'angle': dd})
     return rates
-
-
-def mid_exposure_mjd(hdu):
-    return time.Time(hdu.header['DATE-AVG'], scale='tai')
-    # mjd_start = time.Time(hdu.header['MJD-STR'], format='mjd')
-    # mjd_end = time.Time(hdu.header['MJD-END'], format='mjd')
-    # return mjd_start + (mjd_end - mjd_start) / 2.0
 
 
 def position_uncertainty_pixels(orbit, pixel_scale):

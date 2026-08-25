@@ -17,6 +17,7 @@ from astropy import units
 from mp_ephem import BKOrbit, EphemerisReader
 from . import settings
 from . import util
+from .util import mid_exposure_mjd, mid_exposure_mpc
 from . import daophot
 from .fwhm import fit_fwhm, aperture_correction
 from mp_ephem.ephem import Observation
@@ -105,7 +106,7 @@ def create_observation_record(image:str, provisional_name:str, x:float, y:float,
         astrometric_level = hdulist[0].header.get('ASTLEVEL', 0)
         xoffset = hdulist[0].header.get('XOFFSET', 0.0)
         yoffset = hdulist[0].header.get('YOFFSET', 0.0)
-        obsdate = Time(Time(hdulist[0].header['DATE-AVG'], scale='tai').mjd, format='mjd', precision=5).mpc
+        obsdate = mid_exposure_mpc(hdulist[0])
         frame_val = hdulist[0].header.get('FRAMEID', os.path.basename(image))
         ra_val, dec_val = wcs.all_pix2world(cen_x, cen_y, 1)
     return Observation(
@@ -256,7 +257,7 @@ def main(**kwargs):
     for image in images:
         with fits.open(image) as hdulist:
             header = hdulist[1].header
-            obsdate = Time(hdulist[0].header['DATE-AVG'], scale='tai')
+            obsdate = mid_exposure_mjd(hdulist[0]).utc
             try:
                 wcs_header_filename = image.replace('.fits','.mega.head')
                 wcs_header = fits.Header.fromtextfile(wcs_header_filename)
