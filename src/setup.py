@@ -44,6 +44,7 @@ setup(
             "daomop-intelligentMasker = daomop.intelligentMasker:main",
             "daomop-resolve-target = daomop.resolve_target:main",
             "daomop-link = daomop.link_objects:main",
+            "daomop-ssos-chips = daomop.ssos_chips:run",
         ],
     }
 )

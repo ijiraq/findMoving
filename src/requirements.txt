@@ -1,4 +1,4 @@
-astropy<=6
+astropy
 ccdproc
 pyraf
 vos
@@ -6,5 +6,6 @@ matplotlib
 ephem
 pyds9
 mp_ephem
+requests
 photutils
 # ossos
