@@ -27,6 +27,19 @@ class Test(TestCase):
         radius = sns.position_uncertainty_pixels(orbit, 0.2)
         self.assertAlmostEqual(radius, 200.0)
 
+    def test_orbit_rate_grid_odd(self):
+        rates = sns.orbit_rate_grid(2.0, 45.0, 5, 0.1)
+        self.assertEqual(len(rates), 5)
+        self.assertEqual([r['rate'] for r in rates], [1.8, 1.9, 2.0, 2.1, 2.2])
+        self.assertEqual(rates[2]['rate'], 2.0)
+        self.assertTrue(all(r['angle'] == 45.0 for r in rates))
+
+    def test_orbit_rate_grid_even(self):
+        rates = sns.orbit_rate_grid(2.0, 10.0, 4, 0.1)
+        self.assertEqual(len(rates), 4)
+        self.assertEqual([r['rate'] for r in rates], [1.8, 1.9, 2.0, 2.1])
+        self.assertEqual(rates[2]['rate'], 2.0)
+
     def test_mid_exposure_mjd_from_date_avg(self):
         header = Header([
             ('DATE-AVG', '2022-08-20T13:29:32.725000000'),

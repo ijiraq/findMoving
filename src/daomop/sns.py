@@ -448,6 +448,27 @@ def shift_rates(r_min, r_max, r_step, angle_min, angle_max, angle_step):
     return rates
 
 
+def orbit_rate_grid(optimal_rate, angle, num_rates, spacing):
+    """
+    Build a rate grid that always includes the optimal rate.
+
+    Offsets are ``arange(num_rates) - num_rates // 2``, so odd counts are
+    symmetric around the optimal rate, and even counts include the optimal
+    with one extra slower rate (e.g. num_rates=4 → offsets -2,-1,0,+1).
+
+    :param optimal_rate: preferred shift rate (''/hour)
+    :param angle: shift angle (degrees)
+    :param num_rates: number of rates in the grid
+    :param spacing: spacing between rates (''/hour)
+    :return: list of dicts with keys ``rate`` and ``angle``
+    """
+    if num_rates < 1:
+        raise ValueError(f'num_rates must be >= 1, got {num_rates}')
+    offsets = np.arange(num_rates) - num_rates // 2
+    return [{'rate': optimal_rate + offset * spacing, 'angle': angle}
+            for offset in offsets]
+
+
 def position_uncertainty_pixels(orbit, pixel_scale):
     """
     Estimate cutout radius in pixels needed to contain the orbit uncertainty ellipse.
@@ -505,12 +526,10 @@ def tnodb_stack():
 
     dra = (coord2.ra - coord1.ra) / (coord2.obstime - coord1.obstime)
     ddec = (coord2.dec - coord1.dec) / (coord2.obstime - coord1.obstime)
-    r_min = r_max = (np.sqrt(dra ** 2 + ddec ** 2)).to('arcsec/hour').value
-    angle_min = angle_max = np.arctan2(ddec, dra).to('degree').value
+    optimal_rate = (np.sqrt(dra ** 2 + ddec ** 2)).to('arcsec/hour').value
+    optimal_angle = np.arctan2(ddec, dra).to('degree').value
     logging.info(f"Optimal rate dRA:{dra.to('arcsec/hour'):3.1f} dDEC:{ddec.to('arcsec/hour'):3.1f}")
-    r_min -= args.rate_spacing * (args.num_of_rates - 1)
-    r_max += args.rate_spacing * (args.num_of_rates - 1)
-    rates = shift_rates(r_min, r_max, args.rate_spacing, angle_min, angle_max, 0.1)
+    rates = orbit_rate_grid(optimal_rate, optimal_angle, args.num_of_rates, args.rate_spacing)
     logging.debug(f'Shift-and-Stacking the following list of rate/angle pairs: '
                   f'{[(rate["rate"], rate["angle"]) for rate in rates]}')
     stack_function = swarp if args.swarp else shift
