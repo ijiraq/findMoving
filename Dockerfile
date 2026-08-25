@@ -1,4 +1,4 @@
-FROM jupyter/base-notebook AS deploy
+FROM quay.io/jupyter/base-notebook AS deploy
 USER root
 RUN apt upgrade -y
 RUN apt update -y
@@ -10,52 +10,44 @@ RUN apt-get -y install	sssd-ad
 RUN apt-get -y install	sssd-tools
 # put the standard start up script into place
 COPY canfar_src/startup.sh /skaha/startup.sh
+# put the initialization of IRAF into the global setup
+COPY canfar_src/iraf.sh /etc/profile.d/
 # see https://bugzilla.redhat.com/show_bug.cgi?id=1773148
 RUN touch /etc/sudo.conf && echo "Set disable_coredump false" > /etc/sudo.conf
 
+# these are some extra linux things (beyond jupyter needs) we find useful
+RUN apt-get install -yq gcc git libx11-dev libxt-dev libcfitsio-dev
+RUN apt-get install -yq gfortran emacs pip vim adcli parallel
 
-## see https://bugzilla.redhat.com/show_bug.cgi?id=1773148
-RUN apt-get install -yq curl xterm xrdp vim adcli parallel iraf
-RUN apt-get install -yq gcc git libx11-dev iraf-dev libxt-dev libcfitsio-dev
-RUN apt-get install -yq gfortran emacs pip
-# put the initialization of IRAF into the global setup
-
-# get a good version of ds9
-RUN curl -L https://ds9.si.edu/download/ubuntu22x86/xpa.ubuntu22x86.2.1.20.tar.gz | tar -C /usr/bin -zxf -
-# RUN curl -L https://ds9.si.edu/download/ubuntu22x86/xpa.ubuntu22x86.2.1.20.tar.gz | tar -C /usr/bin -xzf -
-RUN curl -L https://ds9.si.edu/download/ubuntu22x86/ds9.ubuntu22x86.8.7b1.tar.gz | tar -C /usr/bin -xzf - 
-# RUN curl https://ds9.si.edu/download/ubuntu22x86/ds9.ubuntu22x86.8.6b1.tar.gz  | tar -C /usr/bin -xzf -
-WORKDIR /opt
-# RUN apt-get install -yq python3-dev python3-numpy-dev python3-setuptools cython3 python3-pytest-astropy
-# RUN apt-get install -yq python3-wxgtk4.0
-# RUN apt-get install -y python3.12-venv
-RUN python -m venv /opt/findMoving/astropy
-RUN . /opt/findMoving/astropy/bin/activate && python -m pip install 'astropy>=5.1.0,<6.0.0'
-# RUN apt-get install -qy python3-pyraf
-COPY canfar_src/iraf.sh /etc/profile.d/
+# note that this container can also run a an xterm on X11 Desktop
+RUN apt-get install -yq curl xterm xrdp iraf iraf-dev
+# complete th configuration of iraf
 RUN ln -s /usr/lib/iraf/bin /usr/lib/iraf/bin.linux
 RUN ln -s /usr/lib/iraf/noao/bin /usr/lib/iraf/noao/bin.linux
 RUN ln -s /usr/lib/iraf/unix/bin /usr/lib/iraf/unix/bin.linux
 
-RUN . /opt/findMoving/astropy/bin/activate && python -m pip install ccdproc pyraf vos matplotlib ephem pyds9 mp_ephem 
-# RUN pip install ossos
-COPY canfar_src/findMoving.sh /etc/profile.d/
+# get a good version of ds9
+RUN curl -L https://ds9.si.edu/download/ubuntu24x86/xpa.ubuntu24x86.2.1.20.tar.gz | tar -C /usr/bin -xzf-
+RUN curl -L https://ds9.si.edu/download/ubuntu24x86/ds9.ubuntu24x86.8.7.tar.gz | tar -C /usr/bin -zxf - 
+
+# Build python packages in a specialty venv for this project
+ARG VENV=/opt/findMoving/astropy
+RUN python -m venv ${VENV}
+RUN . ${VENV}/bin/activate && python -m pip install canfar cadctap cadcdata vos 
+RUN . ${VENV}/bin/activate && python -m pip install matplotlib ephem
+RUN . ${VENV}/bin/activate && python -m pip install mp_ephem 
+RUN . ${VENV}/bin/activate && python -m pip install ccdproc pyraf pyds9
+
+# and scripts that will initlize the project environment
+RUN echo ". ${VENV}/bin/activate" > /etc/profile.d/activate_python_venv.sh
 ARG BUILDDIR=/opt/findMoving
 RUN mkdir -p ${BUILDDIR}
-# COPY ds9_dist/ds9.unknown.8.3.tar.gz ${BUILDDIR}/
-# RUN tar xf ${BUILDDIR}/ds9.unknown.8.3.tar.gz ; mv ds9 /usr/bin/
-# COPY ds9_dist/xpa.unknown.2.1.20.tar.gz ${BUILDDIR}/
-# RUN tar xf ${BUILDDIR}/xpa.unknown.2.1.20.tar.gz ; mv xpa* /usr/bin/
 WORKDIR ${BUILDDIR}
 COPY src  ./
 ARG iraf=/usr/lib/iraf
 ARG IRAFARCH=linux
 ARG USER=`whoami`
+# Install the project software
 RUN . /opt/findMoving/astropy/bin/activate && python -m pip install -r requirements.txt
 RUN . /opt/findMoving/astropy/bin/activate && python setup.py install 
-RUN . /opt/findMoving/astropy/bin/activate && python -m pip install git+https://github.com/opencadc/canfar.git
-# RUN apt-get install -y automake autoconf libx11-dev zlib1g-dev libxml2-dev libxslt1-dev libxft-dev tcl-dev tk-dev zip
-# RUN mkdir ds9
-# WORKDIR ${BUILDDIR}/ds9
-# RUN curl -L https://github.com/SAOImageDS9/SAOImageDS9/archive/refs/tags/v8.3.tar.gz | tar xzf - 
 ENTRYPOINT ["/skaha/startup.sh"]
