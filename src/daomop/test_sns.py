@@ -1,6 +1,7 @@
 from unittest import TestCase
 from unittest.mock import Mock
 from astropy import units
+from astropy.coordinates import SkyCoord
 from astropy.io.fits import Header
 from astropy.time import Time
 from . import sns
@@ -39,6 +40,19 @@ class Test(TestCase):
         self.assertEqual(len(rates), 4)
         self.assertEqual([r['rate'] for r in rates], [1.8, 1.9, 2.0, 2.1])
         self.assertEqual(rates[2]['rate'], 2.0)
+
+    def test_get_centre_uses_reference_epoch(self):
+        header = Header([('DATE-AVG', '2022-08-20T13:29:32.725000000')])
+        hdu0 = Mock(header=header)
+        reference = [hdu0]
+        expected = SkyCoord(150.0, -10.0, unit='degree')
+        orbit = Mock()
+        orbit.coordinate = expected
+        centre = sns.get_centre(reference, orbit)
+        orbit.predict.assert_called_once()
+        called_time = orbit.predict.call_args[0][0]
+        self.assertEqual(called_time.isot, '2022-08-20T13:29:32.725')
+        self.assertIs(centre, expected)
 
     def test_mid_exposure_mjd_from_date_avg(self):
         header = Header([

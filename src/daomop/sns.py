@@ -541,16 +541,15 @@ def tnodb_stack():
     n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
     time_groups=args.time_groups, use_swarp=args.swarp, rectify=args.rectify,
     section_size=args.section_size, cutout_size=cutout_size, clip=args.clip, mask=args.mask,
-    centre = get_centre(list(images.values())[len(images)//2], orbit))
+    orbit=orbit)
 
 
 def get_centre(reference_image, orbit) -> SkyCoord:
     """
-    Given the reference image for a stack compute the sky coord of target at that time
-    at the mid-point of the exposures.
-    :param images: list of HDUList
-    :param orbit: BKOrbit of interest.
-    :return:
+    Sky position of the target at the mid-exposure time of the reference image.
+
+    Cutouts and shift/stack must use this same reference so the source lands
+    at the centre of the output stamp.
     """
     orbit.predict(mid_exposure_mjd(reference_image[0]))
     return orbit.coordinate
@@ -621,9 +620,13 @@ def kbmod_stack():
     if chunk_size < args.section_size:
         logging.info(f'Using {args.section_size} pixel cutout; '
                      f'processing in {chunk_size} pixel sections to limit memory use')
+    if args.centre is not None:
+        centre = SkyCoord(args.centre[0], args.centre[1], unit='degree')
+    else:
+        centre = SkyCoord(0, 0, unit='degree')
     stack(images, stack_function, rates, args.pointing, args.ccd,
           n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
-          time_groups=args.time_group, swarp=args.swarp, rectify=args.rectify, centre=args.centre,
+          time_groups=args.time_group, use_swarp=args.swarp, rectify=args.rectify, centre=centre,
           section_size=chunk_size, cutout_size=args.section_size, clip=args.clip, mask=args.mask)
 
 
@@ -653,7 +656,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
           n_sub_stacks=1, stack_mode='MEAN',
           time_groups=False, use_swarp=False, rectify=False,
           section_size=128, cutout_size=None, clip=None, mask=False,
-          centre=SkyCoord(0, 0, unit='degree')):
+          centre=None, orbit=None):
     """
     Stack the images in the list using the stack_function and rates.
 
@@ -664,7 +667,8 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
     :param time_groups:
     :param use_swarp:
     :param rectify:
-    :param centre:
+    :param centre: fixed sky centre for cutouts; ignored when ``orbit`` is set.
+    :param orbit: if given, cutout centre is the ephemeris at the stack reference epoch.
     :param section_size: chunk size when shift/stacking (limits memory use).
     :param cutout_size: size of region extracted around centre (defaults to section_size).
     :param clip:
@@ -675,24 +679,12 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
     if cutout_size is None:
         cutout_size = section_size
     images = list(full_hdus.keys())
-    # if logging.getLogger().getEffectiveLevel() < logging.INFO:
-    #     num_of_images = min(6, len(images))
-    #     stride = max(1, int(len(images) / num_of_images - 1))
-    #     logging.debug(f'Selecting every {stride}th images, for total of {num_of_images}')
-    #     images = images[::stride]
 
     # do the stacking in groups of images as set from the CL.
-    reference_hdu = None
     for index in range(n_sub_stacks):
         if not time_groups:
             # stride the image list
             sub_images = images[index::n_sub_stacks]
-            reference_idx = int(len(images) // 2)
-            reference_image = images[reference_idx]
-            reference_hdu = full_hdus[reference_image]
-            # reference_hdu = fits.open(images[reference_idx])
-            # reference_hdu[0].header['IMAGE'] = os.path.basename(reference_image)
-            # reference_filename = os.path.splitext(os.path.basename(images[reference_idx]))[0][8:]
         else:
             # time_groups images by time
             start_idx = len(images) // n_sub_stacks * index
@@ -701,23 +693,32 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             end_idx = int(min(len(images), end_idx))
             sub_images = images[start_idx:end_idx]
 
+        if not sub_images:
+            logging.warning(f'No images in sub-stack {index}')
+            continue
+
+        # Reference must be in this sub-stack; cutout centre uses the same epoch.
+        reference_idx = len(sub_images) // 2
+        reference_image = sub_images[reference_idx]
+        reference_hdu = full_hdus[reference_image]
+
+        if orbit is not None:
+            centre = get_centre(reference_hdu, orbit)
+            logging.info(f'Sub-stack {index}: cutout centre from {reference_image} at '
+                         f'{mid_exposure_mjd(reference_hdu[0]).isot} -> '
+                         f'{centre.to_string(style="hmsdms", sep=":")}')
+        elif centre is None:
+            raise ValueError('stack() requires either orbit=... or centre=SkyCoord(...)')
+
         hdus = {}
         for image in sub_images:
             hdus[image] = full_hdus[image]
-            # with fits.open(image, mode='update') as hdulist:
-            #    hdulist[0].header['IMAGE'] = os.path.basename(image)
-            # hdus[image] = os.path.basename(image)
 
         # make a dictionary of the astrometric headers.
         astheads = {}
         for image in sub_images:
             astheads[image] = hdus[image][1].header
 
-        if time_groups:
-            reference_idx = int(len(sub_images) // 2)
-            reference_image = sub_images[reference_idx]
-            reference_hdu = hdus[reference_image]
-            # reference_hdu = fits.open(sub_images[reference_idx])
         reference_filename = os.path.splitext(reference_hdu[0].header['IMAGE'])[0][0:]
 
         if not swarp and rectify:
@@ -800,10 +801,23 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             logging.warning(f"No images left after cutout for {centre}")
             continue
 
-        reference_idx = int(len(hdus) // 2)
-        reference_image = list(hdus.keys())[reference_idx]
-        ccd = int(re.search('-(\d\d).fits', reference_image).groups()[0])
-        reference_hdu = hdus[reference_image]
+        # Keep the pre-cutout reference when possible so epoch matches cutout centre.
+        if reference_image in hdus:
+            reference_hdu = hdus[reference_image]
+        else:
+            reference_idx = len(hdus) // 2
+            reference_image = list(hdus.keys())[reference_idx]
+            reference_hdu = hdus[reference_image]
+            logging.warning(f'Reference frame dropped during cutout; using {reference_image}. '
+                            f'Source may be offset from stamp centre.')
+            if orbit is not None:
+                centre = get_centre(reference_hdu, orbit)
+                logging.warning(f'Updated cutout centre epoch to match new reference '
+                                f'(cutouts already extracted around previous centre).')
+        try:
+            ccd = int(re.search(r'-(\d\d).fits', reference_image).groups()[0])
+        except (AttributeError, IndexError):
+            logging.debug(f'Could not parse ccd from {reference_image}; keeping ccd={ccd}')
         reference_filename = os.path.splitext(reference_hdu[0].header['IMAGE'])[0][0:]
 
         if clip is not None:
