@@ -173,6 +173,7 @@ while read -r line; do
     --rate-max "${rate}" \
     --n-sub-stacks "${num}" \
     --section-size "${section}" \
+    --source-name "${provisional_name}" \
     --clip 8
 
   logmsg INFO "Moving result from ${lsst_dir} to ${stack_dir}"

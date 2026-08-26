@@ -78,6 +78,66 @@ class Test(TestCase):
         hdu3 = [Mock(header=header_empty)]
         self.assertEqual(util.frame_label(hdu3, fallback_name='DIFFEXP-1111111-01.fits'), 1111111)
 
+    def test_night_from_path(self):
+        self.assertEqual(
+            util.night_from_path('/data/AS1 July/2022-08-26/ccd00/DIFFEXP-2779494-00.fits'),
+            '2022-08-26',
+        )
+        self.assertIsNone(util.night_from_path('/data/2779494/DIFFEXP-00.fits'))
+
+    def test_stack_night_from_warpd(self):
+        header = Header([
+            ('WARPD', '/arc/classy/AS1 July/2022-08-26/ccd00'),
+            ('MJD-OBS', 59817.4833963),
+            ('MJDEND', 59817.4868922),
+        ])
+        hdu = [Mock(header=header)]
+        self.assertEqual(util.stack_night(hdu), '2022-08-26')
+
+    def test_stack_night_from_exposure_time(self):
+        header = Header([
+            ('MJD-OBS', 59817.4833963),
+            ('MJDEND', 59817.4868922),
+        ])
+        hdu = [Mock(header=header)]
+        self.assertEqual(util.stack_night(hdu), '2022-08-26')
+
+    def test_field_from_path(self):
+        path = '/data/AS1 July/2022-08-26/ccd00/DIFFEXP-2779494-00.fits'
+        self.assertEqual(util.field_from_path(path), 'AS1 July')
+        self.assertEqual(util.sanitize_filename_component('AS1 July'), 'AS1_July')
+
+    def test_source_name_from_orbit(self):
+        obs = Mock(provisional_name='2020 AB123')
+        orbit = Mock(observations=[obs])
+        orbit.name = 'LASTOBS'
+        self.assertEqual(util.source_name_from_orbit(orbit), '2020 AB123')
+
+        orbit_no_obs_name = Mock(observations=[])
+        orbit_no_obs_name.name = 'FALLBACK'
+        self.assertEqual(util.source_name_from_orbit(orbit_no_obs_name), 'FALLBACK')
+
+        orbit_empty = Mock(observations=[Mock(provisional_name='   ')])
+        orbit_empty.name = 'FALLBACK'
+        self.assertEqual(util.source_name_from_orbit(orbit_empty), 'FALLBACK')
+
+    def test_stack_output_filename(self):
+        name = util.stack_output_filename(
+            'AS1 July', '2022-08-26', 0, 1, 0, 'WEIGHTED_MEDIAN', 2.0, 45.0,
+            source_name='2020 AB123',
+        )
+        self.assertEqual(
+            name,
+            'STACK-2020_AB123-AS1_July-2022-08-26-00-01-00-WEIGHTED_MEDIAN+02.00-+45.00.fits',
+        )
+        name_no_source = util.stack_output_filename(
+            '03148', '2022-08-26', 12, 3, 1, 'MEDIAN', 1.5, -8.0,
+        )
+        self.assertEqual(
+            name_no_source,
+            'STACK-03148-2022-08-26-12-03-01-MEDIAN+01.50--08.00.fits',
+        )
+
     def test_mid_exposure_mjd_from_date_avg(self):
         header = Header([
             ('DATE-AVG', '2022-08-20T13:29:32.725000000'),

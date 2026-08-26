@@ -12,7 +12,8 @@ from ccdproc import CCDData, wcs_project, Combiner
 from mp_ephem import BKOrbit
 from . import util
 from math import cos, ceil, floor
-from .util import get_image_list, mid_exposure_mjd, frame_label, exposure_id_from_name
+from .util import (get_image_list, mid_exposure_mjd, frame_label, exposure_id_from_name,
+                   stack_night, field_from_path, stack_output_filename, source_name_from_orbit)
 from .version import __version__
 import warnings
 import re
@@ -538,7 +539,11 @@ def tnodb_stack():
     if cutout_size > args.section_size:
         logging.info(f'Using {cutout_size} pixel cutout for uncertainty ellipse; '
                      f'processing in {args.section_size} pixel sections to limit memory use')
-    stack(images, stack_function, rates, orbit.name, 0,
+    first_hdu = list(images.values())[0]
+    field = (field_from_path(first_hdu[0].header.get('WARPD'))
+             or field_from_path(os.path.dirname(args.images[0]))
+             or 'UNKNOWN')
+    stack(images, stack_function, rates, field, 0,
     n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
     time_groups=args.time_groups, use_swarp=args.swarp, rectify=args.rectify,
     section_size=args.section_size, cutout_size=cutout_size, clip=args.clip, mask=args.mask,
@@ -582,6 +587,8 @@ def kbmod_stack():
                         help='Break images into section when stacking (conserves memory)')
     parser.add_argument('--centre', default=None, help="only stack data around this RA/DEC (decimal degree) centre",
                         nargs=3, type=float)
+    parser.add_argument('--source-name', default=None,
+                        help='Provisional name of the target (included in stack output filenames)')
     parser.add_argument('--time_groups', action='store_true', help='Make stacks time grouped instead of striding.')
 
     args = parser.parse_args()
@@ -628,7 +635,8 @@ def kbmod_stack():
     stack(images, stack_function, rates, args.pointing, args.ccd,
           n_sub_stacks=args.n_sub_stacks, stack_mode=args.stack_mode,
           time_groups=args.time_group, use_swarp=args.swarp, rectify=args.rectify, centre=centre,
-          section_size=chunk_size, cutout_size=args.section_size, clip=args.clip, mask=args.mask)
+          section_size=chunk_size, cutout_size=args.section_size, clip=args.clip, mask=args.mask,
+          source_name=args.source_name)
 
 
 def sort_images(images) -> OrderedDict:
@@ -657,7 +665,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
           n_sub_stacks=1, stack_mode='MEAN',
           time_groups=False, use_swarp=False, rectify=False,
           section_size=128, cutout_size=None, clip=None, mask=False,
-          centre=None, orbit=None):
+          centre=None, orbit=None, source_name=None):
     """
     Stack the images in the list using the stack_function and rates.
 
@@ -670,6 +678,8 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
     :param rectify:
     :param centre: fixed sky centre for cutouts; ignored when ``orbit`` is set.
     :param orbit: if given, cutout centre is the ephemeris at the stack reference epoch.
+    :param source_name: provisional target name included in output filenames; when omitted
+                        and ``orbit`` is given, taken from the astrometry file.
     :param section_size: chunk size when shift/stacking (limits memory use).
     :param cutout_size: size of region extracted around centre (defaults to section_size).
     :param clip:
@@ -679,6 +689,8 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
     """
     if cutout_size is None:
         cutout_size = section_size
+    if source_name is None and orbit is not None:
+        source_name = source_name_from_orbit(orbit)
     images = list(full_hdus.keys())
 
     # do the stacking in groups of images as set from the CL.
@@ -821,6 +833,8 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
         except (AttributeError, IndexError):
             logging.debug(f'Could not parse ccd from {reference_image}; keeping ccd={ccd}')
         reference_filename = os.path.splitext(reference_hdu[0].header['IMAGE'])[0][0:]
+        night = stack_night(reference_hdu, fallback_name=reference_image)
+        logging.info(f'Sub-stack {index}: night {night}')
 
         if clip is not None:
             # Use the variance data section to mask high variance pixels from the stack.
@@ -865,8 +879,9 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             dra = rate['rate'] * np.cos(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             ddec = rate['rate'] * np.sin(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             expnum = frame_label(reference_hdu, fallback_name=reference_image)
-            output_filename = f'{n_sub_stacks:02d}-STACK-{pointing}-{index:02d}-{ccd:02d}-{stack_mode}' \
-                              f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits'
+            output_filename = stack_output_filename(
+                pointing, night, ccd, n_sub_stacks, index, stack_mode,
+                rate['rate'], rate['angle'], source_name=source_name)
             # Removed check of VOSpace as now running on arcade
             output_dir = "./"
             output_filename = os.path.join(output_dir, output_filename)
@@ -885,6 +900,9 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             output[0].header['DRA'] = (dra.value, str(dra.unit))
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             output[0].header['FRAMEID'] = frame_id
+            output[0].header['NIGHT'] = (night, 'UT night of stack (YYYY-MM-DD)')
+            if source_name:
+                output[0].header['OBJNAME'] = (source_name, 'Provisional target name')
             output[0].header['CCDNUM'] = (ccd, 'CCD NUMBER or DETSER')
             output[0].header['EXPNUM'] = (expnum, 'reference exposure id')
             output[0].header['REFEXP'] = (reference_filename, 'reference exposure')

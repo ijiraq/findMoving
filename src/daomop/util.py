@@ -202,3 +202,119 @@ def frame_label(hdu, fallback_name=None):
     if exp_id is not None:
         return exp_id
     return os.path.basename(str(name)) if name else 'unknown'
+
+
+_NIGHT_DIR_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+
+def night_from_path(path):
+    """
+    Parse UT night (``YYYY-MM-DD``) from a directory path.
+
+    Matches the field/night/ccdXX symlink layout used by daomop-link-diffs.sh.
+    """
+    if not path:
+        return None
+    for part in Path(str(path)).parts:
+        if _NIGHT_DIR_PATTERN.match(part):
+            return part
+    return None
+
+
+def night_from_hdu(hdu):
+    """UT night of mid-exposure from a FITS primary HDU."""
+    return mid_exposure_mjd(hdu).utc.strftime('%Y-%m-%d')
+
+
+def stack_night(hdu, fallback_name=None):
+    """
+    UT night for a stack, from WARPD path or reference exposure time.
+    """
+    try:
+        header = hdu[0].header
+    except (TypeError, KeyError, IndexError, AttributeError):
+        header = hdu.header
+
+    night = night_from_path(header.get('WARPD'))
+    if night is not None:
+        return night
+    if fallback_name:
+        night = night_from_path(os.path.dirname(fallback_name))
+        if night is not None:
+            return night
+    try:
+        return night_from_hdu(hdu[0])
+    except (TypeError, KeyError, IndexError, AttributeError):
+        return night_from_hdu(hdu)
+
+
+def field_from_path(path):
+    """
+    Parse field/pointing name from a directory path.
+
+    Matches the field/night/ccdXX symlink layout (parent of the night folder).
+    """
+    if not path:
+        return None
+    parts = list(Path(str(path)).parts)
+    for index, part in enumerate(parts):
+        if _NIGHT_DIR_PATTERN.match(part) and index > 0:
+            return parts[index - 1]
+    return None
+
+
+def sanitize_filename_component(name):
+    """Make a string safe for use as one component of a stack output filename."""
+    if name is None or name == '':
+        return None
+    value = str(name).strip()
+    value = re.sub(r'[^\w\-.]+', '_', value)
+    value = re.sub(r'_+', '_', value).strip('_')
+    return value or None
+
+
+def source_name_from_orbit(orbit):
+    """
+    Provisional designation from astrometry loaded into a BKOrbit.
+
+    Uses ``orbit.observations[0].provisional_name``, falling back to ``orbit.name``
+    if set during the orbit fit.
+    """
+    try:
+        observations = orbit.observations
+        if observations:
+            name = getattr(observations[0], 'provisional_name', None)
+            if name is not None and str(name).strip():
+                return str(name).strip()
+    except (AttributeError, IndexError, TypeError):
+        pass
+    name = getattr(orbit, 'name', None)
+    if name is not None and str(name).strip():
+        return str(name).strip()
+    return None
+
+
+def stack_output_filename(pointing, night, ccd, n_sub_stacks, index, stack_mode, rate, angle,
+                          source_name=None):
+    """
+    Build a stack output filename aligned with field/night/ccd directory layout.
+
+    Format:
+      STACK-{source}-{pointing}-{night}-{ccd}-{n_sub_stacks}-{index}-{stack_mode}{rate}{angle}.fits
+    ``source`` is omitted when ``source_name`` is not given.
+    """
+    field = sanitize_filename_component(pointing) or 'UNKNOWN'
+    night_label = night or 'UNKNOWN'
+    parts = ['STACK']
+    source = sanitize_filename_component(source_name)
+    if source:
+        parts.append(source)
+    parts.extend([
+        field,
+        night_label,
+        f'{ccd:02d}',
+        f'{n_sub_stacks:02d}',
+        f'{index:02d}',
+        f'{stack_mode}{rate:+06.2f}-{angle:+06.2f}',
+    ])
+    return '-'.join(parts) + '.fits'
