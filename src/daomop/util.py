@@ -282,7 +282,7 @@ def source_name_from_orbit(orbit):
     """
     try:
         observations = orbit.observations
-        if observations:
+        if observations is not None and len(observations) > 0:
             name = getattr(observations[0], 'provisional_name', None)
             if name is not None and str(name).strip():
                 return str(name).strip()

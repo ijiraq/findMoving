@@ -121,6 +121,10 @@ class Test(TestCase):
         orbit_empty.name = 'FALLBACK'
         self.assertEqual(util.source_name_from_orbit(orbit_empty), 'FALLBACK')
 
+        orbit_np = Mock(observations=numpy.array([obs]))
+        orbit_np.name = 'LASTOBS'
+        self.assertEqual(util.source_name_from_orbit(orbit_np), '2020 AB123')
+
     def test_stack_output_filename(self):
         name = util.stack_output_filename(
             'AS1 July', '2022-08-26', 0, 1, 0, 'WEIGHTED_MEDIAN', 2.0, 45.0,
