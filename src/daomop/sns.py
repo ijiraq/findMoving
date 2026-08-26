@@ -12,7 +12,7 @@ from ccdproc import CCDData, wcs_project, Combiner
 from mp_ephem import BKOrbit
 from . import util
 from math import cos, ceil, floor
-from .util import get_image_list, mid_exposure_mjd
+from .util import get_image_list, mid_exposure_mjd, frame_label, exposure_id_from_name
 from .version import __version__
 import warnings
 import re
@@ -229,8 +229,9 @@ def up_sample_2d(output_array, input_array, rf):
             output_array[y:y_f:rf, x:x_f:rf] = input_array
 
 
-def frameid(hdu):
-    return hdu[0].header['EXPID']
+def frameid(hdu, fallback_name=None):
+    """Return exposure/frame id without requiring EXPID (diffs use EXPNUM / filename)."""
+    return frame_label(hdu, fallback_name=fallback_name)
 
 
 def compute_offset(hdu, rx, ry, rf, mid_mjd, ref_skycoord):
@@ -768,7 +769,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             y1 = int(max(0, y - box_size))
             y2 = int(min(hdul[1].header['NAXIS2'], y1 + 2 * box_size))
             y1 = int(max(0, y2 - 2 * box_size))
-            logging.debug(f'{hdul[0].header["EXPID"]} -> [{y1}:{y2},{x1}:{x2}]')
+            logging.debug(f'{frame_label(hdul, fallback_name=image)} -> [{y1}:{y2},{x1}:{x2}]')
             hdul[0].header['XOFFSET'] = x1
             hdul[0].header['YOFFSET'] = y1
             astheads[image]['CRPIX1'] -= x1
@@ -780,7 +781,8 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
                 except Exception as ex:
                     logging.error(str(ex))
                     logging.error(
-                        f"Extracting [{y1}:{y2},{x1}:{x2}] from {hdul[0].header['EXPID']}, blanking this frame.")
+                        f"Extracting [{y1}:{y2},{x1}:{x2}] from "
+                        f"{frame_label(hdul, fallback_name=image)}, blanking this frame.")
                     data = np.ones((y2 - y1 + 1) * (x2 - x1 + 1)) * np.nan
                     data.shape = y2 - y1 + 1, x2 - x1 + 1
                 hdul[idx].data = data
@@ -862,7 +864,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
         for rate in rates:
             dra = rate['rate'] * np.cos(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
             ddec = rate['rate'] * np.sin(np.deg2rad(rate['angle'])) * units.arcsecond / units.hour
-            expnum = reference_hdu[0].header.get('EXPID', 0)
+            expnum = frame_label(reference_hdu, fallback_name=reference_image)
             output_filename = f'{n_sub_stacks:02d}-STACK-{pointing}-{index:02d}-{ccd:02d}-{stack_mode}' \
                               f'{rate["rate"]:+06.2f}-{rate["angle"]:+06.2f}.fits'
             # Removed check of VOSpace as now running on arcade
@@ -884,7 +886,7 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
             output[0].header['DDEC'] = (ddec.value, str(ddec.unit))
             output[0].header['FRAMEID'] = frame_id
             output[0].header['CCDNUM'] = (ccd, 'CCD NUMBER or DETSER')
-            output[0].header['EXPNUM'] = (expnum, '[int(pointing)][rate*10][(angle%360)*10][index]')
+            output[0].header['EXPNUM'] = (expnum, 'reference exposure id')
             output[0].header['REFEXP'] = (reference_filename, 'reference exposure')
             output[0].header['MIDMJD'] = (mid_exposure_mjd(output[0]).mjd, " MID Exposure")
             output[0].header['ASTLEVEL'] = 1
@@ -893,11 +895,16 @@ def stack(full_hdus:OrderedDict, stack_function, rates, pointing, ccd,
 
             for i_index, image_name in enumerate(hdus):
                 output[0].header[f'input{i_index:03d}'] = os.path.basename(image_name)
-                parts = image_name.split('-')
-                pccd = int(parts[3].split('.')[0])
-                plant_list = f"{parts[1]}p{pccd:02d}-{parts[2]}p{pccd:02d}.plantList"
-                output[0].header[f'plant{i_index:03d}'] = plant_list
                 output[0].header[f'warpd{i_index:03d}'] = hdus[image_name][0].header['WARPD']
+                # Plant lists only apply to calexp-style names, not DIFFEXP stamps.
+                parts = os.path.basename(image_name).replace('.fits', '').split('-')
+                if len(parts) >= 4 and parts[0].lower() != 'diffexp':
+                    try:
+                        pccd = int(parts[3].split('.')[0])
+                        plant_list = f"{parts[1]}p{pccd:02d}-{parts[2]}p{pccd:02d}.plantList"
+                        output[0].header[f'plant{i_index:03d}'] = plant_list
+                    except (ValueError, IndexError):
+                        pass
             output.writeto(output_filename, overwrite=True)
 
     return 0

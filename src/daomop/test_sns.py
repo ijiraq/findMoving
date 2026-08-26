@@ -54,6 +54,30 @@ class Test(TestCase):
         self.assertEqual(called_time.isot, '2022-08-20T13:29:32.725')
         self.assertIs(centre, expected)
 
+    def test_exposure_id_from_diffexp_filename(self):
+        self.assertEqual(util.exposure_id_from_name('DIFFEXP-2779494-00.fits'), 2779494)
+        self.assertEqual(util.exposure_id_from_name('DIFFEXP-2779494-2779500-00.fits'), 2779494)
+        self.assertEqual(util.exposure_id_from_name('/path/calexp-02779494-012.fits'), 2779494)
+
+    def test_exposure_id_from_filename_keyword(self):
+        self.assertEqual(util.exposure_id_from_filename_keyword('2779465o'), 2779465)
+        self.assertEqual(util.exposure_id_from_filename_keyword('2779494O'), 2779494)
+        self.assertEqual(util.exposure_id_from_filename_keyword('2779494'), 2779494)
+
+    def test_frame_label_prefers_expnum_then_filename(self):
+        header = Header([('EXPNUM', 2779494), ('FILENAME', '9999999o')])
+        hdu = [Mock(header=header)]
+        self.assertEqual(util.frame_label(hdu), 2779494)
+
+        # calexp-style: no EXPNUM, use FILENAME with trailing o removed
+        header_calexp = Header([('FILENAME', '2779465o'), ('EXPID', 100060740)])
+        hdu2 = [Mock(header=header_calexp)]
+        self.assertEqual(util.frame_label(hdu2), 2779465)
+
+        header_empty = Header([])
+        hdu3 = [Mock(header=header_empty)]
+        self.assertEqual(util.frame_label(hdu3, fallback_name='DIFFEXP-1111111-01.fits'), 1111111)
+
     def test_mid_exposure_mjd_from_date_avg(self):
         header = Header([
             ('DATE-AVG', '2022-08-20T13:29:32.725000000'),

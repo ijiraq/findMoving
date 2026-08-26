@@ -133,3 +133,72 @@ def mid_exposure_mjd(hdu):
 
 def mid_exposure_mpc(hdu, precision=5):
     return Time(mid_exposure_mjd(hdu).utc, format='mjd', precision=precision).mpc
+
+
+def exposure_id_from_name(name):
+    """
+    Parse exposure id from an image basename.
+
+    Supports MegaCam/CFHT diff and calexp-style names, e.g.:
+      DIFFEXP-2779494-00.fits
+      DIFFEXP-2779494-2779500-00.fits
+      calexp-02779494-012.fits
+    """
+    base = os.path.basename(str(name))
+    match = re.search(
+        r'(?:DIFFEXP|calexp|CORR|WARPED)[-_]?(\d{6,8})',
+        base,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return int(match.group(1))
+    for part in Path(base).stem.split('-'):
+        if part.isdigit() and len(part) >= 6:
+            return int(part)
+    return None
+
+
+def exposure_id_from_filename_keyword(filename):
+    """
+    Convert a CFHT/MegaCam FILENAME keyword (e.g. ``2779465o``) to an exposure id.
+    """
+    if filename is None or filename == '':
+        return None
+    value = str(filename).strip()
+    if value.lower().endswith('o'):
+        value = value[:-1]
+    try:
+        return int(value)
+    except ValueError:
+        return value or None
+
+
+def frame_label(hdu, fallback_name=None):
+    """
+    MegaCam exposure id for logging / headers.
+
+    Prefers header ``EXPNUM``; if missing, uses ``FILENAME`` with a trailing
+    ``o`` removed (e.g. ``2779465o`` → ``2779465``). Falls back to parsing
+    ``IMAGE`` / ``fallback_name`` only if those keywords are absent.
+    """
+    try:
+        header = hdu[0].header
+    except (TypeError, KeyError, IndexError, AttributeError):
+        header = hdu.header
+
+    if 'EXPNUM' in header and header['EXPNUM'] not in (None, ''):
+        try:
+            return int(header['EXPNUM'])
+        except (TypeError, ValueError):
+            return header['EXPNUM']
+
+    if 'FILENAME' in header and header['FILENAME'] not in (None, ''):
+        exp_id = exposure_id_from_filename_keyword(header['FILENAME'])
+        if exp_id is not None:
+            return exp_id
+
+    name = header.get('IMAGE') or fallback_name or ''
+    exp_id = exposure_id_from_name(name)
+    if exp_id is not None:
+        return exp_id
+    return os.path.basename(str(name)) if name else 'unknown'
