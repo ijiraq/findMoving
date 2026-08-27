@@ -26,6 +26,11 @@ from dataclasses import dataclass, field
 config = settings.AppConfig()
 
 
+# DS9 region/keyboard shortcuts that collide with MPC NOTE1 marker keys.
+# Leaving DS9 in region mode lets these steal keystrokes from iexam and hang XPA.
+_DS9_KEY_CONFLICTS = set('bcefist')
+
+
 def start_ds9(name):
     ds9 = pyds9.DS9(target=name)
     levels = ['INIT', 'PREF']
@@ -34,11 +39,64 @@ def start_ds9(name):
         for key in list(setting.keys()):
             ds9.set(f"{key.replace('_', ' ')} {setting[key]}")
     ds9.set("frame delete all")
+    prepare_ds9_for_iexam(ds9)
     return ds9
 
 
 def get_ds9(name):
-    return pyds9.DS9(target=name, start=False)
+    ds9 = pyds9.DS9(target=name, start=False)
+    prepare_ds9_for_iexam(ds9)
+    return ds9
+
+
+def prepare_ds9_for_iexam(ds9):
+    """
+    Put DS9 into a state where iexam key events reach Python instead of
+    DS9's own region/examine bindings (which can deadlock XPA).
+    """
+    # Skip xpaaccess self-test on every get/set; that call is a common hang point.
+    try:
+        ds9.verify = False
+    except Exception:
+        pass
+    for cmd in ('mode none', 'regions select none'):
+        try:
+            ds9.set(cmd)
+        except Exception as ex:
+            logging.debug(f"DS9 prep '{cmd}' failed: {ex}")
+    # Close any plot windows left open by a stolen imexam-style key.
+    try:
+        ds9.set('plot close')
+    except Exception as ex:
+        logging.debug(f"DS9 prep 'plot close' failed: {ex}")
+
+
+def ds9_iexam_key(ds9):
+    """
+    Wait for a key + image coordinates from DS9 iexam.
+
+    Returns (key, x, y) or None if the XPA call failed. On KeyboardInterrupt,
+    attempts one DS9 reset so the caller can resume instead of exiting cold.
+    """
+    prepare_ds9_for_iexam(ds9)
+    try:
+        result = ds9.get('iexam key coordinate image')
+    except KeyboardInterrupt:
+        logging.warning(
+            "Interrupted during DS9 iexam; resetting DS9 state. "
+            "Press Ctrl-C again to exit, or continue measuring.")
+        prepare_ds9_for_iexam(ds9)
+        raise
+    except Exception as ex:
+        logging.warning(f"DS9 iexam failed ({ex}); resetting DS9 and retrying.")
+        prepare_ds9_for_iexam(ds9)
+        return None
+    try:
+        key, x, y = result.split()
+        return key, float(x), float(y)
+    except Exception as ex:
+        logging.warning(f"Could not parse DS9 iexam result {result!r}: {ex}")
+        return None
 
 
 def mark_planted_sources(ds9, header):
@@ -317,6 +375,7 @@ def main(**kwargs):
 
     ds9.set('frame match wcs')
     ds9.set('frame first')
+    prepare_ds9_for_iexam(ds9)
     obs = {}
     images = displayed_images
     # Build a map of allowed key strokes
@@ -326,32 +385,50 @@ def main(**kwargs):
                     'p': ('', 'Previous frame'),
                     'n': ('', 'Next Frame'),
                     'r': ('', 'Create a NULL observation')}
-    
-    for key in [x.split() for x in config.read("MPC.NOTE1OPTIONS")]:
-        allowed_keys[key[0].lower()] = key
 
+    for note in [x.split() for x in config.read("MPC.NOTE1OPTIONS")]:
+        allowed_keys[note[0].lower()] = note
+
+    conflict = sorted(_DS9_KEY_CONFLICTS & set(allowed_keys))
+    if conflict:
+        logging.info(
+            "Note keys that may still conflict with DS9 bindings: %s "
+            "(DS9 is set to mode none to reduce hangs)",
+            ', '.join(conflict))
+
+    interrupt_seen = False
     while True:
         try:
-            result = ds9.get('iexam key coordinate image')
-            key, x, y = result.split()
-            x = float(x)
-            y = float(y)
-            logging.debug(f"DS9 Returned: {result} -> {key} {x} {y}")
-        except Exception as ex:
-            logging.debug(f"DS9 get exception: {ex}")
+            iexam = ds9_iexam_key(ds9)
+        except KeyboardInterrupt:
+            if interrupt_seen:
+                logging.warning("Second interrupt; leaving this image set.")
+                break
+            interrupt_seen = True
             continue
+        if iexam is None:
+            continue
+        interrupt_seen = False
+        key, x, y = iexam
+        logging.debug(f"DS9 Returned: {key} {x} {y}")
 
         if key == 'n':
-            ds9.set('frame next')
+            try:
+                ds9.set('frame next')
+            except Exception as ex:
+                logging.warning(f"DS9 frame next failed: {ex}")
             continue
         if key == 'p':
-            ds9.set('frame prev')
+            try:
+                ds9.set('frame prev')
+            except Exception as ex:
+                logging.warning(f"DS9 frame prev failed: {ex}")
             continue
 
         if key not in allowed_keys:
-            logging.info(f"Allowed keys: ")
-            for key in allowed_keys:
-                print(f"{key} -> {allowed_keys[key][1]}")
+            logging.info("Allowed keys:")
+            for allowed_key, meta in sorted(allowed_keys.items()):
+                print(f"{allowed_key} -> {meta[1]}")
             continue
 
         if key == 'q':
@@ -360,7 +437,15 @@ def main(**kwargs):
             sys.exit(0)
         null_observation = key.lower() == 'r'
         note1 = allowed_keys[key][0]
-        frame_no = int(ds9.get('frame')) - 1
+        try:
+            frame_no = int(ds9.get('frame')) - 1
+        except Exception as ex:
+            logging.warning(f"Failed to read DS9 frame: {ex}")
+            prepare_ds9_for_iexam(ds9)
+            continue
+        if frame_no < 0 or frame_no >= len(images):
+            logging.warning(f"DS9 frame {frame_no + 1} out of range for {len(images)} images")
+            continue
         image = images[frame_no]
         # put x,y from the ds9 coordinate system into the image file coordinate system.
         x += offset[image][0]
@@ -374,14 +459,25 @@ def main(**kwargs):
                     logging.warning(f"Failed to measure FWHM for {image} at ({x}, {y}): {ve} using default {fwhm}")
             aperture = 1.1 * fwhm
             apcor = aperture_correction(fwhm, aperture)
-        obs_record = create_observation_record(image,
-                                               kwargs['provisional_name'], x, y, note1,
-                                               aperture, apcor, comment='stack', null_observation=null_observation)
-        ds9.set('regions', f'image; circle {x-offset[image][0]} {y-offset[image][1]} 4 # color=blue width=2')
+        try:
+            obs_record = create_observation_record(image,
+                                                   kwargs['provisional_name'], x, y, note1,
+                                                   aperture, apcor, comment='stack',
+                                                   null_observation=null_observation)
+        except Exception as ex:
+            logging.warning(f"Measurement failed: {ex}")
+            prepare_ds9_for_iexam(ds9)
+            continue
+        try:
+            ds9.set('regions',
+                    f'image; circle {x-offset[image][0]} {y-offset[image][1]} 4 # color=blue width=2')
+            ds9.set('frame next')
+        except Exception as ex:
+            logging.warning(f"DS9 post-measure update failed: {ex}")
         record_key = obs_record.date.mpc[0:15]
         obs[record_key] = obs_record
-        ds9.set('frame next')
         update_ast_file(obs, kwargs['tlf_filename'])
+        prepare_ds9_for_iexam(ds9)
     return obs
 
 
@@ -479,7 +575,8 @@ def run():
     logging.basicConfig(level=getattr(logging, args.log_level), format=_format)
     _main(images=args.images, ast_filename=args.ast_filename, provisional_name=args.provisonal_name,
           nframes=args.nframes, stride=args.stride, skip=args.skip, apcor=args.apcor,
-          aperture=args.aperture, photzp=args.photzp, auto_process=args.auto_process, autoapcor=args.auto_apcor)
+          aperture=args.aperture, photzp=args.photzp, auto_process=args.auto_process,
+          auto_apcor=args.auto_apcor)
 
 
 if __name__ == '__main__':
