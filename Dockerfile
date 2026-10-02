@@ -1,4 +1,5 @@
-FROM quay.io/jupyter/base-notebook AS deploy
+# Pinned to an Ubuntu 24.04 build; :latest moved to 26.04, which changes the iraf and ds9 packages.
+FROM quay.io/jupyter/base-notebook@sha256:23fbe16371af3c0fdc833fa0962b42fd07811e152b821ff51d19a8d6e9cc86cf AS deploy
 USER root
 RUN apt upgrade -y
 RUN apt update -y
@@ -27,8 +28,8 @@ RUN ln -s /usr/lib/iraf/noao/bin /usr/lib/iraf/noao/bin.linux
 RUN ln -s /usr/lib/iraf/unix/bin /usr/lib/iraf/unix/bin.linux
 
 # get a good version of ds9
-RUN curl -L https://ds9.si.edu/download/ubuntu24x86/xpa.ubuntu24x86.2.1.20.tar.gz | tar -C /usr/bin -xzf-
-RUN curl -L https://ds9.si.edu/download/ubuntu24x86/ds9.ubuntu24x86.8.7.tar.gz | tar -C /usr/bin -zxf - 
+RUN curl -fL https://ds9.si.edu/download/ubuntu-24.04_x86_64/xpa.ubuntu-24.04_x86_64.2.2.1.tar.gz | tar -C /usr/bin -xzf -
+RUN curl -fL https://ds9.si.edu/download/ubuntu-24.04_x86_64/ds9.ubuntu-24.04_x86_64.8.8.tar.gz | tar -C /usr/bin -zxf -
 
 # Build python packages in a specialty venv for this project
 ARG VENV=/opt/findMoving/astropy
